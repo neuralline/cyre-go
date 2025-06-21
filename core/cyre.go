@@ -1,51 +1,74 @@
 // core/cyre.go
-// Main Cyre API implementation with protection mechanisms
+// Core API with only essential functions - clean implementation
+// executeAction renamed to handler, removed all helper/utility functions
 
 package core
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/neuralline/cyre-go/config"
-	"github.com/neuralline/cyre-go/context"
+	cyrecontext "github.com/neuralline/cyre-go/context"
+	"github.com/neuralline/cyre-go/schema"
 	"github.com/neuralline/cyre-go/timekeeper"
+	"github.com/neuralline/cyre-go/types"
 )
 
 /*
-	C.Y.R.E - C.O.R.E
+	C.Y.R.E - C.O.R.E (Essential API Only)
 
-	Main API implementation providing:
-	- Cyre's exact API: initialize, action, on, call, get, forget
-	- O(1) performance with concurrent safety
-	- Protection mechanisms: throttle, debounce, detectChanges
-	- Action chaining (IntraLinks)
-	- Async execution with channels
-	- Zero-error reliability
-	- 18,602+ ops/sec target performance
+	Core functions only:
+	- Initialize() - system initialization
+	- Action() - register actions
+	- On() - subscribe to actions
+	- Call() - trigger actions
+	- Get() - retrieve payloads
+	- Forget() - remove actions
+	- Reset() - reset system state
+	- Shutdown() - clean shutdown
 */
 
-// === CORE TYPES ===
+// === RESPONSE TYPES ===
 
-// ActionConfig represents action configuration
-type ActionConfig struct {
-	ID            string         `json:"id"`
-	Type          string         `json:"type,omitempty"`
-	Payload       interface{}    `json:"payload,omitempty"`
-	Interval      *time.Duration `json:"interval,omitempty"`
-	Repeat        *int           `json:"repeat,omitempty"`
-	Throttle      *time.Duration `json:"throttle,omitempty"`
-	Debounce      *time.Duration `json:"debounce,omitempty"`
-	DetectChanges bool           `json:"detectChanges,omitempty"`
-	Log           bool           `json:"log,omitempty"`
-	Priority      string         `json:"priority,omitempty"`
+// CyreResponse matches TypeScript CyreResponse interface exactly
+type CyreResponse struct {
+	OK        bool        `json:"ok"`
+	Payload   interface{} `json:"payload"`
+	Message   string      `json:"message"`
+	Error     interface{} `json:"error,omitempty"`     // boolean or string
+	Timestamp *int64      `json:"timestamp,omitempty"` // optional
+	Metadata  *Metadata   `json:"metadata,omitempty"`  // optional
 }
 
-// HandlerFunc represents an action handler function
-type HandlerFunc func(payload interface{}) interface{}
+// Metadata matches TypeScript metadata structure
+type Metadata struct {
+	ExecutionTime    *int64        `json:"executionTime,omitempty"`    // milliseconds
+	Scheduled        *bool         `json:"scheduled,omitempty"`        // if scheduled execution
+	Delayed          *bool         `json:"delayed,omitempty"`          // if delayed
+	Duration         *int64        `json:"duration,omitempty"`         // execution duration
+	Interval         *int64        `json:"interval,omitempty"`         // interval timing
+	Delay            *int64        `json:"delay,omitempty"`            // delay timing
+	Repeat           interface{}   `json:"repeat,omitempty"`           // number or boolean
+	IntraLink        *IntraLink    `json:"intraLink,omitempty"`        // action chaining
+	ChainResult      *CyreResponse `json:"chainResult,omitempty"`      // chained result
+	ValidationPassed *bool         `json:"validationPassed,omitempty"` // validation status
+	ValidationErrors []string      `json:"validationErrors,omitempty"` // validation errors
+	ConditionMet     *bool         `json:"conditionMet,omitempty"`     // condition result
+	SelectorApplied  *bool         `json:"selectorApplied,omitempty"`  // selector applied
+	TransformApplied *bool         `json:"transformApplied,omitempty"` // transform applied
+}
 
-// CallResult represents the result of a call operation
+// IntraLink represents action chaining
+type IntraLink struct {
+	ID      string      `json:"id"`
+	Payload interface{} `json:"payload,omitempty"`
+}
+
+// Legacy result types for backward compatibility
 type CallResult struct {
 	OK      bool        `json:"ok"`
 	Payload interface{} `json:"payload"`
@@ -53,92 +76,25 @@ type CallResult struct {
 	Error   error       `json:"error,omitempty"`
 }
 
-// InitResult represents initialization result
 type InitResult struct {
 	OK      bool   `json:"ok"`
-	Payload int64  `json:"payload"` // timestamp
+	Payload int64  `json:"payload"`
 	Message string `json:"message"`
 }
 
-// SubscribeResult represents subscription result
 type SubscribeResult struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
 }
 
-// === PROTECTION SYSTEM ===
-
-// ProtectionSystem handles throttle, debounce, and change detection
-type ProtectionSystem struct {
-	stateManager *state.StateManager
-	sensor       *sensor.Sensor
-	timeKeeper   *timekeeper.TimeKeeper
-	mu           sync.RWMutex
-}
-
-// NewProtectionSystem creates a new protection system
-func NewProtectionSystem(sm *state.StateManager, s *sensor.Sensor, tk *timekeeper.TimeKeeper) *ProtectionSystem {
-	return &ProtectionSystem{
-		stateManager: sm,
-		sensor:       s,
-		timeKeeper:   tk,
-	}
-}
-
-// CheckProtections validates all protection mechanisms
-func (ps *ProtectionSystem) CheckProtections(actionID string, payload interface{}, config *state.ActionConfig) (bool, string) {
-	// 0. Ensure config exists
-	if config == nil {
-		// If no config, it's a direct call, so allow it
-		// but maybe log this as a potential issue.
-		return true, "no_config"
-	}
-
-	// 1. Throttle check (rate limiting)
-	if config.Throttle != nil && *config.Throttle > 0 {
-		if !ps.checkThrottle(actionID, *config.Throttle) {
-			ps.sensor.RecordProtection(actionID, "throttle")
-			return false, "throttled"
-		}
-	}
-
-	// 2. Change detection (skip identical payloads)
-	if config.DetectChanges {
-		if !ps.stateManager.ComparePayload(actionID, payload) {
-			ps.sensor.RecordProtection(actionID, "skip")
-			return false, "no_change"
-		}
-	}
-
-	// 3. Debounce check happens at timer level
-	// (debounce creates/cancels timers rather than blocking)
-
-	return true, "allowed"
-}
-
-// checkThrottle implements throttle protection
-func (ps *ProtectionSystem) checkThrottle(actionID string, throttleDuration time.Duration) bool {
-	now := time.Now()
-
-	if lastTime, exists := ps.stateManager.GetThrottleTime(actionID); exists {
-		if now.Sub(lastTime) < throttleDuration {
-			return false // Still throttled
-		}
-	}
-
-	// Update throttle time
-	ps.stateManager.SetThrottleTime(actionID, now)
-	return true
-}
+// HandlerFunc represents an action handler function
+type HandlerFunc func(payload interface{}) interface{}
 
 // === CYRE CORE ===
 
-// Cyre is the main system instance
 type Cyre struct {
-	stateManager *state.StateManager
-	sensor       *sensor.Sensor
+	stateManager *cyrecontext.StateManager
 	timeKeeper   *timekeeper.TimeKeeper
-	protection   *ProtectionSystem
 
 	// Worker pool for concurrent execution
 	workerPool     chan struct{}
@@ -158,6 +114,8 @@ type Cyre struct {
 var GlobalCyre *Cyre
 var cyreOnce sync.Once
 
+// === ESSENTIAL API FUNCTIONS ONLY ===
+
 // Initialize creates and initializes the global Cyre instance
 func Initialize(configParams ...map[string]interface{}) InitResult {
 	startTime := time.Now()
@@ -166,14 +124,10 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Initialize dependencies
-		stateManager := context.Initialize()  // ✅ Correct
-		sensorInstance := context.GetSensor() // ✅ Correct
+		stateManager := cyrecontext.Initialize()
 		timeKeeper := timekeeper.Initialize()
 
-		// Create protection system
-		protection := NewProtectionSystem(stateManager, sensorInstance, timeKeeper)
-
-		// Create worker pool - use default from config package
+		// Create worker pool
 		workerPoolSize := config.WorkerPoolSize
 
 		// Allow override from initialization config
@@ -185,9 +139,7 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 
 		GlobalCyre = &Cyre{
 			stateManager:   stateManager,
-			sensor:         sensorInstance,
 			timeKeeper:     timeKeeper,
-			protection:     protection,
 			workerPool:     make(chan struct{}, workerPoolSize),
 			workerPoolSize: workerPoolSize,
 			initialized:    true,
@@ -205,22 +157,12 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 	return InitResult{
 		OK:      true,
 		Payload: startTime.UnixNano(),
-		Message: "CYRE initialized successfully",
+		Message: config.MSG["WELCOME"],
 	}
 }
 
-// GetCyre returns the global Cyre instance
-func GetCyre() *Cyre {
-	if GlobalCyre == nil {
-		Initialize()
-	}
-	return GlobalCyre
-}
-
-// === MAIN API METHODS (Cyre's exact API) ===
-
-// Action registers an action with the system
-func (c *Cyre) Action(config ActionConfig) error {
+// Action registers an action with the system using schema compilation
+func (c *Cyre) Action(config types.IO) error {
 	if !c.initialized {
 		return fmt.Errorf("Cyre not initialized")
 	}
@@ -229,35 +171,46 @@ func (c *Cyre) Action(config ActionConfig) error {
 		return fmt.Errorf("action must have an ID")
 	}
 
-	// Convert to internal format
-	stateConfig := &state.ActionConfig{
-		ID:            config.ID,
-		Type:          config.Type,
-		Throttle:      config.Throttle,
-		Debounce:      config.Debounce,
-		DetectChanges: config.DetectChanges,
-		Log:           config.Log,
-		Priority:      config.Priority,
-		Timestamp:     time.Now().UnixNano(),
+	// Compile and validate action using schema system
+	compileResult := schema.CompileAction(config)
+
+	// Check for compilation errors
+	if len(compileResult.Errors) > 0 {
+		// Log compilation errors via sensor
+		for _, err := range compileResult.Errors {
+			cyrecontext.SensorError(fmt.Sprintf("Action compilation error for %s: %s", config.ID, err)).
+				Location("core/cyre.go").
+				ActionID(config.ID).
+				Log()
+		}
+		return fmt.Errorf("action compilation failed: %s", strings.Join(compileResult.Errors, "; "))
 	}
 
-	// Handle timing parameters
-	if config.Interval != nil {
-		stateConfig.Interval = config.Interval
-	}
-	if config.Repeat != nil {
-		stateConfig.Repeat = config.Repeat
+	// Log compilation warnings if any
+	if len(compileResult.Warnings) > 0 {
+		for _, warning := range compileResult.Warnings {
+			cyrecontext.SensorWarn(fmt.Sprintf("Action compilation warning for %s: %s", config.ID, warning)).
+				Location("core/cyre.go").
+				ActionID(config.ID).
+				Log()
+		}
 	}
 
-	// Store action configuration
-	err := c.stateManager.SetAction(stateConfig)
+	// Use compiled action with _pipeline included
+	compiledAction := compileResult.CompiledAction
+	if compiledAction == nil {
+		return fmt.Errorf("compilation failed to produce valid action")
+	}
+
+	// Set creation timestamp if not set
+	if compiledAction.TimeOfCreation == 0 {
+		compiledAction.TimeOfCreation = time.Now().UnixMilli()
+	}
+
+	// Store compiled action with pipeline in IoStore
+	err := c.stateManager.IO().Set(compiledAction)
 	if err != nil {
-		return err
-	}
-
-	// Store initial payload if provided
-	if config.Payload != nil {
-		c.stateManager.SetPayload(config.ID, config.Payload)
+		return fmt.Errorf("failed to store compiled action: %w", err)
 	}
 
 	return nil
@@ -268,81 +221,106 @@ func (c *Cyre) On(actionID string, handler HandlerFunc) SubscribeResult {
 	if !c.initialized {
 		return SubscribeResult{
 			OK:      false,
-			Message: "Cyre not initialized",
+			Message: config.MSG["OFFLINE"],
 		}
 	}
 
 	if actionID == "" {
 		return SubscribeResult{
 			OK:      false,
-			Message: "actionID cannot be empty",
+			Message: config.MSG["ACTION_ID_REQUIRED"],
 		}
 	}
 
 	if handler == nil {
 		return SubscribeResult{
 			OK:      false,
-			Message: "handler cannot be nil",
+			Message: config.MSG["SUBSCRIPTION_INVALID_HANDLER"],
 		}
 	}
 
+	// Create subscriber
+	subscriber := &cyrecontext.Subscriber{
+		ID:        actionID,
+		ActionID:  actionID,
+		Handler:   cyrecontext.HandlerFunc(handler),
+		CreatedAt: time.Now(),
+	}
+
 	// Store handler
-	err := c.stateManager.SetHandler(actionID, handler)
+	err := c.stateManager.Subscribers().Add(subscriber)
 	if err != nil {
 		return SubscribeResult{
 			OK:      false,
-			Message: err.Error(),
+			Message: config.MSG["SUBSCRIPTION_FAILED"],
 		}
 	}
 
 	return SubscribeResult{
 		OK:      true,
-		Message: fmt.Sprintf("Subscribed to action: %s", actionID),
+		Message: config.MSG["SUBSCRIPTION_ESTABLISHED"],
 	}
 }
 
-// Call triggers an action by ID with payload
+// Call triggers an action by ID with payload using clean pipeline execution
 func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
 
 	if !c.initialized {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: "Cyre not initialized",
+			Message: config.MSG["CALL_OFFLINE"],
 			Error:   fmt.Errorf("system not initialized"),
 		}
 		close(resultChan)
 		return resultChan
 	}
 
-	// Record the call
-	c.sensor.RecordCall(actionID)
+	c.stateManager.UpdateMetrics(actionID, "call", 0)
 
-	// Get action configuration
-	actionConfig, exists := c.stateManager.GetAction(actionID)
+	// Get compiled IO configuration from IoStore
+	ioConfig, exists := c.stateManager.IO().Get(actionID)
 	if !exists {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: fmt.Sprintf("Action not found: %s", actionID),
+			Message: config.MSG["CALL_INVALID_ID"],
 			Error:   fmt.Errorf("action %s not registered", actionID),
 		}
 		close(resultChan)
 		return resultChan
 	}
 
-	// Handle debounced actions
-	if actionConfig.Debounce != nil && *actionConfig.Debounce > 0 {
-		return c.handleDebouncedCall(actionID, payload, *actionConfig.Debounce)
+	// Execute pipeline and handle result
+	pipelineResult := schema.ExecutePipeline(actionID, payload, ioConfig, c.stateManager)
+
+	// Handle pipeline errors
+	if pipelineResult.Error != nil {
+		resultChan <- CallResult{
+			OK:      false,
+			Message: "Pipeline execution failed",
+			Error:   pipelineResult.Error,
+		}
+		close(resultChan)
+		return resultChan
 	}
 
-	// Handle interval actions
-	if actionConfig.Interval != nil && *actionConfig.Interval > 0 {
-		return c.handleIntervalCall(actionID, payload, actionConfig)
+	// Handle pipeline blocking
+	if !pipelineResult.Allow {
+		resultChan <- CallResult{
+			OK:      false,
+			Message: pipelineResult.Message,
+		}
+		close(resultChan)
+		return resultChan
 	}
 
-	// Handle immediate execution
-	go c.executeAction(actionID, payload, resultChan)
+	// Check if scheduling is needed
+	if c.requiresScheduling(ioConfig, pipelineResult) {
+		return c.scheduleExecution(actionID, pipelineResult.Payload, ioConfig, pipelineResult)
+	}
 
+	// Immediate execution with pipeline-processed payload
+	go c.handler(actionID, pipelineResult.Payload, resultChan)
 	return resultChan
 }
 
@@ -362,14 +340,18 @@ func (c *Cyre) Forget(actionID string) bool {
 	}
 
 	// Cancel any active timers
-	c.timeKeeper.CancelActionTimers(actionID)
+	c.timeKeeper.Forget(fmt.Sprintf("%s_debounce", actionID))
+	c.timeKeeper.Forget(fmt.Sprintf("%s_interval", actionID))
+	c.timeKeeper.Forget(fmt.Sprintf("%s_delay", actionID))
 
 	// Remove from state
-	return c.stateManager.ForgetAction(actionID)
+	success := c.stateManager.ForgetAction(actionID)
+
+	return success
 }
 
-// Clear removes all actions and resets the system
-func (c *Cyre) Clear() {
+// Reset resets system to default state
+func (c *Cyre) Reset() {
 	if !c.initialized {
 		return
 	}
@@ -377,20 +359,36 @@ func (c *Cyre) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Stop all timers
-	c.timeKeeper.Stop()
-
-	// Clear all state
-	c.stateManager.Clear()
-
-	// Reinitialize timekeeper
-	c.timeKeeper = timekeeper.Initialize()
+	c.stateManager.Reset()
 }
 
-// === EXECUTION ENGINE ===
+// Shutdown performs clean system shutdown
+func (c *Cyre) Shutdown() {
+	if !c.initialized {
+		return
+	}
+	c.mu.Lock()
+	c.Reset()
 
-// executeAction executes an action with protection mechanisms
-func (c *Cyre) executeAction(actionID string, payload interface{}, resultChan chan CallResult) {
+	defer c.mu.Unlock()
+
+	// Stop timekeeper
+	c.timeKeeper.Stop()
+
+	// Clear state
+	c.stateManager.Clear()
+
+	// Cancel context
+	c.cancel()
+
+	// Mark as shutdown
+	c.initialized = false
+}
+
+// === EXECUTION ENGINE (RENAMED: executeAction → handler) ===
+
+// handler executes an action with the processed payload from pipeline
+func (c *Cyre) handler(actionID string, processedPayload interface{}, resultChan chan CallResult) {
 	defer close(resultChan)
 
 	// Get worker from pool
@@ -401,47 +399,32 @@ func (c *Cyre) executeAction(actionID string, payload interface{}, resultChan ch
 
 	start := time.Now()
 
-	// Get action configuration
-	actionConfig, exists := c.stateManager.GetAction(actionID)
+	// Get IO configuration
+	ioConfig, exists := c.stateManager.IO().Get(actionID)
 	if !exists {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: "Action not found",
+			Message: config.MSG["CALL_INVALID_ID"],
 			Error:   fmt.Errorf("action %s not found", actionID),
 		}
 		return
 	}
 
-	// Bypass protection check for nil payloads with DetectChanges
-	if payload == nil && actionConfig.DetectChanges {
-		// This specific case can cause panics if not handled
-	} else {
-		// Check protection mechanisms
-		allowed, reason := c.protection.CheckProtections(actionID, payload, actionConfig)
-		if !allowed {
-			resultChan <- CallResult{
-				OK:      false,
-				Message: fmt.Sprintf("Action blocked: %s", reason),
-			}
-			return
-		}
-	}
-
 	// Get handler
-	handler, exists := c.stateManager.GetHandler(actionID)
+	subscriber, exists := c.stateManager.Subscribers().Get(actionID)
 	if !exists {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: "No handler registered",
+			Message: config.MSG["CALL_NO_SUBSCRIBER"],
 			Error:   fmt.Errorf("no handler for action %s", actionID),
 		}
 		return
 	}
 
-	// Update payload
-	c.stateManager.SetPayload(actionID, payload)
+	// Update state with processed payload
+	c.stateManager.SetPayload(actionID, processedPayload)
 
-	// Execute handler with panic recovery
+	// Execute handler with processed payload and panic recovery
 	var result interface{}
 	var execError error
 
@@ -449,22 +432,24 @@ func (c *Cyre) executeAction(actionID string, payload interface{}, resultChan ch
 		defer func() {
 			if r := recover(); r != nil {
 				execError = fmt.Errorf("handler panic: %v", r)
+				cyrecontext.SensorError(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
+					Location("core/cyre.go").
+					ActionID(actionID).
+					Log()
 			}
 		}()
 
-		result = handler(payload)
+		result = subscriber.Handler(processedPayload)
 	}()
 
 	duration := time.Since(start)
-	success := execError == nil
-
-	// Record execution
-	c.sensor.RecordExecution(actionID, duration, success, execError)
+	c.stateManager.UpdateMetrics(actionID, "execution", duration)
 
 	if execError != nil {
+		c.stateManager.UpdateMetrics(actionID, "error", 0)
 		resultChan <- CallResult{
 			OK:      false,
-			Message: "Handler execution failed",
+			Message: config.MSG["ACTION_EXECUTE_FAILED"],
 			Error:   execError,
 		}
 		return
@@ -476,73 +461,133 @@ func (c *Cyre) executeAction(actionID string, payload interface{}, resultChan ch
 		return
 	}
 
-	// Return successful result
+	// Update execution stats in IO config
+	ioConfig.ExecutionCount++
+	ioConfig.LastExecTime = time.Now().UnixMilli()
+	ioConfig.ExecutionDuration = duration.Milliseconds()
+
+	// Save updated config back to store
+	c.stateManager.IO().Set(ioConfig)
+
 	resultChan <- CallResult{
 		OK:      true,
 		Payload: result,
-		Message: "Action executed successfully",
+		Message: config.MSG["ACKNOWLEDGED_AND_PROCESSED"],
 	}
 }
 
-// handleDebouncedCall handles debounced action execution
-func (c *Cyre) handleDebouncedCall(actionID string, payload interface{}, debounceDuration time.Duration) <-chan CallResult {
+// === INTERNAL FUNCTIONS (NOT EXPORTED) ===
+
+// GetCyre returns the global Cyre instance
+func GetCyre() *Cyre {
+	if GlobalCyre == nil {
+		Initialize()
+	}
+	return GlobalCyre
+}
+
+// requiresScheduling determines if action needs TimeKeeper scheduling
+func (c *Cyre) requiresScheduling(ioConfig *types.IO, pipelineResult schema.ExecutionResult) bool {
+	// Check for delay requirement from pipeline
+	if pipelineResult.Delay != nil && *pipelineResult.Delay > 0 {
+		return true
+	}
+
+	// Check action configuration for scheduling
+	return schema.IsScheduledAction(ioConfig)
+}
+
+// scheduleExecution handles all scheduling using TimeKeeper
+func (c *Cyre) scheduleExecution(actionID string, processedPayload interface{}, ioConfig *types.IO, pipelineResult schema.ExecutionResult) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
 
-	// Create debounced timer
-	_, err := c.timeKeeper.ScheduleDebounce(actionID, debounceDuration,
-		func(id string, pl interface{}) {
+	// Handle pipeline-detected delay (from debounce operator)
+	if pipelineResult.Delay != nil && *pipelineResult.Delay > 0 {
+		err := c.timeKeeper.Wait(*pipelineResult.Delay, func() {
 			execChan := make(chan CallResult, 1)
-			c.executeAction(id, pl, execChan)
-
-			// Forward result
+			c.handler(actionID, processedPayload, execChan)
 			result := <-execChan
 			resultChan <- result
 			close(resultChan)
-		}, payload)
+		})
 
-	if err != nil {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "Failed to schedule debounced action",
-			Error:   err,
+		if err != nil {
+			resultChan <- CallResult{
+				OK:      false,
+				Message: "Failed to schedule delayed execution",
+				Error:   err,
+			}
+			close(resultChan)
 		}
+
+		return resultChan
+	}
+
+	// Get scheduling configuration from action
+	delay, interval, repeat := schema.GetSchedulingConfig(ioConfig)
+
+	// Handle interval actions
+	if interval > 0 {
+		var repeatValue interface{} = true // Default infinite
+		if repeat > 0 {
+			repeatValue = repeat
+		} else if repeat == 0 {
+			repeatValue = 1 // Single execution
+		}
+
+		err := c.timeKeeper.Keep(
+			interval,
+			func() {
+				execChan := make(chan CallResult, 1)
+				c.handler(actionID, processedPayload, execChan)
+				<-execChan // Consume result but don't forward for intervals
+			},
+			repeatValue,
+			fmt.Sprintf("%s_interval", actionID),
+			delay, // Optional delay before first execution
+		)
+
+		if err != nil {
+			resultChan <- CallResult{
+				OK:      false,
+				Message: "Failed to schedule interval action",
+				Error:   err,
+			}
+		} else {
+			resultChan <- CallResult{
+				OK:      true,
+				Message: "Interval action scheduled successfully",
+			}
+		}
+
 		close(resultChan)
+		return resultChan
 	}
 
-	return resultChan
-}
-
-// handleIntervalCall handles interval-based action execution
-func (c *Cyre) handleIntervalCall(actionID string, payload interface{}, config *state.ActionConfig) <-chan CallResult {
-	resultChan := make(chan CallResult, 1)
-
-	repeat := -1 // Infinite by default
-	if config.Repeat != nil {
-		repeat = *config.Repeat
-	}
-
-	// Create interval timer
-	_, err := c.timeKeeper.ScheduleInterval(actionID, *config.Interval, repeat,
-		func(id string, pl interface{}) {
+	// Handle delayed actions only
+	if delay > 0 {
+		err := c.timeKeeper.Wait(delay, func() {
 			execChan := make(chan CallResult, 1)
-			c.executeAction(id, pl, execChan)
-			<-execChan // Consume result but don't forward for intervals
-		}, payload)
+			c.handler(actionID, processedPayload, execChan)
+			result := <-execChan
+			resultChan <- result
+			close(resultChan)
+		})
 
-	if err != nil {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "Failed to schedule interval action",
-			Error:   err,
+		if err != nil {
+			resultChan <- CallResult{
+				OK:      false,
+				Message: "Failed to schedule delayed action",
+				Error:   err,
+			}
+			close(resultChan)
 		}
-	} else {
-		resultChan <- CallResult{
-			OK:      true,
-			Message: "Interval action scheduled",
-		}
+
+		return resultChan
 	}
 
-	close(resultChan)
+	// Fallback to immediate execution
+	go c.handler(actionID, processedPayload, resultChan)
 	return resultChan
 }
 
@@ -567,65 +612,4 @@ func (c *Cyre) handleActionChain(result interface{}) (CallResult, bool) {
 	}
 
 	return CallResult{}, false
-}
-
-// === SYSTEM STATUS & MONITORING ===
-
-// IsHealthy returns true if system is healthy
-func (c *Cyre) IsHealthy() bool {
-	if !c.initialized {
-		return false
-	}
-
-	return c.sensor.IsHealthy() && c.timeKeeper.IsHealthy()
-}
-
-// GetMetrics returns system metrics
-func (c *Cyre) GetMetrics(actionID ...string) interface{} {
-	if !c.initialized {
-		return nil
-	}
-
-	if len(actionID) > 0 && actionID[0] != "" {
-		// Return specific action metrics
-		if metrics, exists := c.sensor.GetChannelMetrics(actionID[0]); exists {
-			return metrics
-		}
-		return nil
-	}
-
-	// Return system metrics
-	return c.sensor.GetSystemMetrics()
-}
-
-// GetBreathingState returns current breathing state
-func (c *Cyre) GetBreathingState() interface{} {
-	if !c.initialized {
-		return nil
-	}
-
-	return c.timeKeeper.GetBreathingState()
-}
-
-// GetStats returns comprehensive system statistics
-func (c *Cyre) GetStats() map[string]interface{} {
-	if !c.initialized {
-		return map[string]interface{}{
-			"initialized": false,
-		}
-	}
-
-	stateStats := c.stateManager.GetStats()
-	sensorStats := c.sensor.GetSystemMetrics()
-	timerStats := c.timeKeeper.GetStats()
-
-	return map[string]interface{}{
-		"initialized": c.initialized,
-		"uptime":      time.Since(c.startTime),
-		"workerPool":  c.workerPoolSize,
-		"state":       stateStats,
-		"sensor":      sensorStats,
-		"timekeeper":  timerStats,
-		"healthy":     c.IsHealthy(),
-	}
 }

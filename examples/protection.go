@@ -1,4 +1,4 @@
-// protection_test.go
+// examples/protection.go
 // Complete test suite to verify all protection mechanisms and timekeeper functionality
 
 package main
@@ -176,10 +176,9 @@ func testDebounceProtection(ts *TestSuite) {
 	fmt.Println("\n🔄 Testing Debounce Protection...")
 
 	// Setup debounced action (300ms debounce)
-	debounceDuration := 300 * time.Millisecond
 	err := cyre.Action(cyre.ActionConfig{
 		ID:       "debounce-test",
-		Debounce: &debounceDuration,
+		Debounce: 3000,
 	})
 
 	if err != nil {
@@ -532,12 +531,11 @@ func testCombinedProtections(ts *TestSuite) {
 	fmt.Println("\n🛡️ Testing Combined Protections...")
 
 	// Setup action with multiple protections
-	throttleDuration := 500 * time.Millisecond
-	debounceDuration := 200 * time.Millisecond
+
 	err := cyre.Action(cyre.ActionConfig{
 		ID:            "combined-test",
-		Throttle:      &throttleDuration,
-		Debounce:      &debounceDuration,
+		Throttle:      5000,
+		Debounce:      2000,
 		DetectChanges: true,
 	})
 
@@ -585,8 +583,8 @@ func testTimeKeeperPrecision(ts *TestSuite) {
 	repeatCount := 5
 	err := cyre.Action(cyre.ActionConfig{
 		ID:       "precision-test",
-		Interval: &intervalDuration,
-		Repeat:   &repeatCount,
+		Interval: 500,
+		Repeat:   2000,
 	})
 
 	if err != nil {

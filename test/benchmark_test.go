@@ -146,10 +146,9 @@ func BenchmarkMemoryEfficiency(b *testing.B) {
 func BenchmarkThrottlePerformance(b *testing.B) {
 	setupBenchmark(b)
 
-	throttleDuration := 1 * time.Microsecond // Minimal throttle
 	cyre.Action(cyre.ActionConfig{
 		ID:       "throttle-test",
-		Throttle: &throttleDuration,
+		Throttle: 100,
 	})
 
 	cyre.On("throttle-test", func(payload interface{}) interface{} {
@@ -418,7 +417,7 @@ func setupRealisticActions() {
 	// User authentication
 	cyre.Action(cyre.ActionConfig{
 		ID:       "user-auth",
-		Throttle: cyre.ThrottleDuration(10 * time.Millisecond),
+		Throttle:400,
 	})
 	cyre.On("user-auth", func(payload interface{}) interface{} {
 		return map[string]interface{}{"authenticated": true, "userId": "user123"}
@@ -436,7 +435,7 @@ func setupRealisticActions() {
 	// API call simulation
 	cyre.Action(cyre.ActionConfig{
 		ID:       "api-call",
-		Throttle: cyre.ThrottleDuration(5 * time.Millisecond),
+		Throttle: 400
 	})
 	cyre.On("api-call", func(payload interface{}) interface{} {
 		return map[string]interface{}{"response": "OK", "data": payload}

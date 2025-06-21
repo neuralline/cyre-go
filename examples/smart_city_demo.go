@@ -1,4 +1,4 @@
-// smart_city_demo.go
+// examples/smart_city_demo.go
 // Complete Smart City IoT Management System using Cyre Go
 // Self-contained with all dependencies
 
@@ -136,7 +136,7 @@ func setupScheduledEnvironmentalMonitoring(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:            "env.air-quality",
 		Interval:      cyre.IntervalDuration(500 * time.Millisecond),
-		Repeat:        cyre.RepeatCount(120),
+		Repeat:        120,
 		DetectChanges: true, // Skip duplicate readings
 	})
 
@@ -144,16 +144,16 @@ func setupScheduledEnvironmentalMonitoring(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:       "env.water-quality",
 		Interval: cyre.IntervalDuration(3 * time.Second),
-		Repeat:   cyre.RepeatCount(20),
-		Throttle: cyre.ThrottleDuration(2500 * time.Millisecond), // Rate limiting
+		Repeat:   20,
+		Throttle: 2500, // milliseconds
 	})
 
 	// Noise monitoring with debouncing (every 4 seconds = 15 readings)
 	cyre.Action(cyre.ActionConfig{
 		ID:       "env.noise-monitoring",
 		Interval: cyre.IntervalDuration(4 * time.Second),
-		Repeat:   cyre.RepeatCount(15),
-		Debounce: cyre.DebounceDuration(2 * time.Second), // Wait for stabilization
+		Repeat:   15,
+		Debounce: 2000, // milliseconds
 	})
 
 	// Alert system (triggered by environmental issues)
@@ -250,11 +250,12 @@ func setupScheduledTrafficManagement(city *SmartCityManager) {
 	fmt.Println("🚦 Setting up SCHEDULED Traffic Management...")
 
 	// Traffic analysis every 5 seconds (12 times = 60 seconds)
+	repeatTraffic := 12
 	cyre.Action(cyre.ActionConfig{
 		ID:       "traffic.analysis",
 		Interval: cyre.IntervalDuration(5 * time.Second),
-		Repeat:   cyre.RepeatCount(12),
-		Throttle: cyre.ThrottleDuration(4 * time.Second), // Prevent analysis spam
+		Repeat:   repeatTraffic,
+		Throttle: 4000, // milliseconds
 	})
 
 	// Traffic optimization (triggered by high congestion)
@@ -322,7 +323,7 @@ func setupScheduledEmergencyResponse(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:       "emergency.simulation",
 		Interval: cyre.IntervalDuration(10 * time.Second),
-		Repeat:   cyre.RepeatCount(6),
+		Repeat:   6,
 		Priority: "high",
 	})
 
@@ -418,8 +419,8 @@ func setupScheduledEnergyManagement(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:       "energy.monitoring",
 		Interval: cyre.IntervalDuration(4 * time.Second),
-		Repeat:   cyre.RepeatCount(15),
-		Throttle: cyre.ThrottleDuration(3500 * time.Millisecond),
+		Repeat:   15,
+		Throttle: 3500, // milliseconds
 	})
 
 	// Load balancing system
@@ -472,14 +473,14 @@ func setupScheduledAnalytics(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:       "analytics.system",
 		Interval: cyre.IntervalDuration(20 * time.Second),
-		Repeat:   cyre.RepeatCount(3),
+		Repeat:   3,
 	})
 
 	// Performance reporting every 30 seconds (2 times = 60 seconds)
 	cyre.Action(cyre.ActionConfig{
 		ID:       "analytics.performance",
 		Interval: cyre.IntervalDuration(30 * time.Second),
-		Repeat:   cyre.RepeatCount(2),
+		Repeat:   2,
 	})
 
 	cyre.On("analytics.system", func(payload interface{}) interface{} {
@@ -525,7 +526,7 @@ func setupScheduledMaintenance(city *SmartCityManager) {
 	cyre.Action(cyre.ActionConfig{
 		ID:            "maintenance.check",
 		Interval:      cyre.IntervalDuration(15 * time.Second),
-		Repeat:        cyre.RepeatCount(4),
+		Repeat:        4,
 		DetectChanges: true,
 	})
 

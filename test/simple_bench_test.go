@@ -1,7 +1,7 @@
-// simple_bench_test.go
+// examples/simple_bench.go
 // Clean, simple benchmark that actually works
 
-package cyre
+package main
 
 import (
 	"fmt"
@@ -10,56 +10,58 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	cyre "github.com/neuralline/cyre-go"
 )
 
 // BenchmarkSimpleCall - Just test basic call performance
 func BenchmarkSimpleCall(b *testing.B) {
-	Initialize()
+	cyre.Initialize()
 
-	Action(ActionConfig{ID: "simple"})
-	On("simple", func(payload interface{}) interface{} {
+	cyre.Action(cyre.ActionConfig{ID: "simple"})
+	cyre.On("simple", func(payload interface{}) interface{} {
 		return payload
 	})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := <-Call("simple", i)
+		result := <-cyre.Call("simple", i)
 		if !result.OK {
 			b.Error("Call failed")
 		}
 	}
 
-	Forget("simple")
+	cyre.Forget("simple")
 }
 
 // BenchmarkConcurrentSimple - Test concurrent performance
 func BenchmarkConcurrentSimple(b *testing.B) {
-	Initialize()
+	cyre.Initialize()
 
-	Action(ActionConfig{ID: "concurrent"})
-	On("concurrent", func(payload interface{}) interface{} {
+	cyre.Action(cyre.ActionConfig{ID: "concurrent"})
+	cyre.On("concurrent", func(payload interface{}) interface{} {
 		return payload
 	})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			result := <-Call("concurrent", "test")
+			result := <-cyre.Call("concurrent", "test")
 			if !result.OK {
 				b.Error("Call failed")
 			}
 		}
 	})
 
-	Forget("concurrent")
+	cyre.Forget("concurrent")
 }
 
 // TestThroughputBattle - Custom test for 5-second sustained throughput
 func TestThroughputBattle(t *testing.T) {
-	Initialize()
+	cyre.Initialize()
 
-	Action(ActionConfig{ID: "throughput"})
-	On("throughput", func(payload interface{}) interface{} {
+	cyre.Action(cyre.ActionConfig{ID: "throughput"})
+	cyre.On("throughput", func(payload interface{}) interface{} {
 		return payload // Minimal processing
 	})
 
@@ -88,7 +90,7 @@ func TestThroughputBattle(t *testing.T) {
 			counter := workerID
 
 			for time.Now().Before(end) {
-				result := <-Call("throughput", counter)
+				result := <-cyre.Call("throughput", counter)
 				if result.OK {
 					atomic.AddInt64(&operations, 1)
 				} else {
@@ -138,7 +140,6 @@ func TestThroughputBattle(t *testing.T) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	fmt.Printf("Memory Usage:     %.2f MB\n", float64(m.Alloc)/1024/1024)
-	fmt.Printf("System Healthy:   %t\n", IsHealthy())
 
 	fmt.Printf("\n🏁 PERFORMANCE BATTLE\n")
 	fmt.Printf("=====================\n")
@@ -164,7 +165,7 @@ func TestThroughputBattle(t *testing.T) {
 	fmt.Printf("✅ Direct memory management\n")
 	fmt.Printf("✅ Compiled performance\n")
 
-	Forget("throughput")
+	cyre.Forget("throughput")
 
 	// Verify no errors
 	if totalErrors > 0 {
@@ -175,4 +176,38 @@ func TestThroughputBattle(t *testing.T) {
 	if opsPerSec < 1000 {
 		t.Errorf("Performance too low: %.0f ops/sec", opsPerSec)
 	}
+}
+
+func TestSimpleBench(t *testing.T) {
+	cyre.Initialize()
+	cyre.Action(cyre.ActionConfig{ID: "bench", Log: false})
+	cyre.On("bench", func(payload interface{}) interface{} {
+		return payload
+	})
+	for i := 0; i < 1000; i++ {
+		<-cyre.Call("bench", i)
+	}
+	cyre.Forget("bench")
+}
+
+func BenchmarkSimple(b *testing.B) {
+	cyre.Initialize()
+	cyre.Action(cyre.ActionConfig{ID: "bench", Log: false})
+	cyre.On("bench", func(payload interface{}) interface{} {
+		return payload
+	})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		<-cyre.Call("bench", i)
+	}
+	cyre.Forget("bench")
+}
+
+func formatNumber(n int64) string {
+	if n >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1000000)
+	} else if n >= 1000 {
+		return fmt.Sprintf("%.1fK", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }

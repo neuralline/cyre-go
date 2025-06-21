@@ -1,4 +1,4 @@
-// integration_test.go
+// test/integration_test.go
 // Integration test to verify all components work together
 
 package cyre

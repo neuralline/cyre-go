@@ -137,7 +137,7 @@ func main() {
 
 	// System health check
 	fmt.Println()
-	fmt.Printf("🏥 System Healthy: %t\n", cyre.IsHealthy())
+
 	fmt.Printf("📈 Goroutines: %d\n", runtime.NumGoroutine())
 
 	var m runtime.MemStats

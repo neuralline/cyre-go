@@ -1,4 +1,4 @@
-// example/main.go
+// examples/main.go
 // Demonstration of Cyre Go core functionality
 
 package main
@@ -82,10 +82,9 @@ func main() {
 
 	// 5. Demonstrate throttled action
 	fmt.Println("\n5. Testing throttle protection...")
-	throttleDuration := 1000 * time.Millisecond
 	err = cyre.Action(cyre.ActionConfig{
 		ID:       "api-call",
-		Throttle: &throttleDuration,
+		Throttle: 1000,
 	})
 	if err != nil {
 		log.Fatalf("❌ Failed to register throttled action: %v", err)
@@ -123,10 +122,9 @@ func main() {
 
 	// 6. Demonstrate debounced action
 	fmt.Println("\n6. Testing debounce protection...")
-	debounceDuration := 300 * time.Millisecond
 	err = cyre.Action(cyre.ActionConfig{
 		ID:       "search-input",
-		Debounce: &debounceDuration,
+		Debounce: -455,
 	})
 	if err != nil {
 		log.Fatalf("❌ Failed to register debounced action: %v", err)
@@ -254,17 +252,6 @@ func main() {
 	} else {
 		fmt.Printf("❌ Chain failed: %s\n", chainResult.Message)
 	}
-
-	// 9. System health and metrics
-	fmt.Println("\n9. System health and metrics...")
-	fmt.Printf("System healthy: %t\n", cyre.IsHealthy())
-
-	systemMetrics := cyre.GetMetrics()
-	fmt.Printf("System metrics available: %t\n", systemMetrics != nil)
-
-	stats := cyre.GetStats()
-	fmt.Printf("System uptime: %v\n", stats["uptime"])
-	fmt.Printf("Actions registered: %v\n", stats["state"].(map[string]interface{})["actions"])
 
 	// 10. Retrieve stored payloads
 	fmt.Println("\n10. Retrieving stored data...")

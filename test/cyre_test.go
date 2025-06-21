@@ -1,4 +1,4 @@
-// cyre_test.go
+// test/cyre_test.go
 // Basic functionality tests for Cyre Go
 
 package cyre
@@ -127,10 +127,9 @@ func TestThrottleProtection(t *testing.T) {
 func TestDebounceProtection(t *testing.T) {
 	Initialize()
 
-	debounceDuration := 100 * time.Millisecond
 	err := Action(ActionConfig{
 		ID:       "debounced-action",
-		Debounce: &debounceDuration,
+		Debounce: 1000,
 	})
 	if err != nil {
 		t.Fatalf("Failed to register debounced action: %v", err)
