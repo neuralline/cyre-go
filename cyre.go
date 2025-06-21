@@ -78,7 +78,7 @@ func Initialize(config ...map[string]interface{}) InitResult {
 //	    DetectChanges: true,
 //	})
 func Action(config ActionConfig) error {
-	return core.Action(config)
+	return core.GetCyre().Action(config)
 }
 
 // On subscribes to an action by ID (NOT by type - this is critical!)
@@ -93,7 +93,7 @@ func Action(config ActionConfig) error {
 //	    return map[string]interface{}{"success": true}
 //	})
 func On(actionID string, handler HandlerFunc) SubscribeResult {
-	return core.On(actionID, handler)
+	return core.GetCyre().On(actionID, handler)
 }
 
 // Call triggers an action by ID with payload
@@ -113,7 +113,7 @@ func On(actionID string, handler HandlerFunc) SubscribeResult {
 //	    fmt.Printf("Success: %v\n", result.Payload)
 //	}
 func Call(actionID string, payload interface{}) <-chan CallResult {
-	return core.Call(actionID, payload)
+	return core.GetCyre().Call(actionID, payload)
 }
 
 // Get retrieves current payload for an action
@@ -128,7 +128,7 @@ func Call(actionID string, payload interface{}) <-chan CallResult {
 //	    fmt.Printf("Current payload: %v\n", payload)
 //	}
 func Get(actionID string) (interface{}, bool) {
-	return core.Get(actionID)
+	return core.GetCyre().Get(actionID)
 }
 
 // Forget removes an action and all associated state
@@ -143,7 +143,7 @@ func Get(actionID string) (interface{}, bool) {
 //	    fmt.Println("Action removed successfully")
 //	}
 func Forget(actionID string) bool {
-	return core.Forget(actionID)
+	return core.GetCyre().Forget(actionID)
 }
 
 // Clear removes all actions and resets the system
@@ -153,7 +153,7 @@ func Forget(actionID string) bool {
 //
 //	cyre.Clear() // Reset entire system
 func Clear() {
-	core.Clear()
+	core.GetCyre().Clear()
 }
 
 // === MONITORING & HEALTH ===
@@ -167,7 +167,7 @@ func Clear() {
 //	    fmt.Println("System is healthy")
 //	}
 func IsHealthy() bool {
-	return core.IsHealthy()
+	return core.GetCyre().IsHealthy()
 }
 
 // GetMetrics returns performance metrics
@@ -181,7 +181,7 @@ func IsHealthy() bool {
 //	systemMetrics := cyre.GetMetrics()
 //	actionMetrics := cyre.GetMetrics("user-login")
 func GetMetrics(actionID ...string) interface{} {
-	return core.GetMetrics(actionID...)
+	return core.GetCyre().GetMetrics(actionID...)
 }
 
 // GetBreathingState returns current adaptive timing state
@@ -192,7 +192,7 @@ func GetMetrics(actionID ...string) interface{} {
 //	breathing := cyre.GetBreathingState()
 //	fmt.Printf("Stress level: %v\n", breathing)
 func GetBreathingState() interface{} {
-	return core.GetBreathingState()
+	return core.GetCyre().GetBreathingState()
 }
 
 // GetStats returns comprehensive system statistics

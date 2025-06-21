@@ -8,7 +8,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/neuralline/cyre-go/core"
+	"github.com/neuralline/cyre-go"
 )
 
 func main() {
@@ -17,7 +17,7 @@ func main() {
 
 	// 1. Initialize Cyre
 	fmt.Println("\n1. Initializing Cyre...")
-	result := core.Initialize()
+	result := cyre.Initialize()
 	if result.OK {
 		fmt.Printf("✅ Cyre initialized successfully at %d\n", result.Payload)
 	} else {
@@ -26,7 +26,7 @@ func main() {
 
 	// 2. Register a simple action
 	fmt.Println("\n2. Registering actions...")
-	err := core.Action(core.ActionConfig{
+	err := cyre.Action(cyre.ActionConfig{
 		ID:      "user-login",
 		Type:    "auth",
 		Payload: map[string]interface{}{"status": "idle"},
@@ -38,7 +38,7 @@ func main() {
 
 	// 3. Subscribe to the action
 	fmt.Println("\n3. Subscribing to action...")
-	subResult := core.On("user-login", func(payload interface{}) interface{} {
+	subResult := cyre.On("user-login", func(payload interface{}) interface{} {
 		fmt.Printf("🔔 User login handler called with: %v\n", payload)
 
 		// Simulate authentication logic
@@ -67,7 +67,7 @@ func main() {
 
 	// 4. Call the action
 	fmt.Println("\n4. Calling action...")
-	resultChan := core.Call("user-login", map[string]interface{}{
+	resultChan := cyre.Call("user-login", map[string]interface{}{
 		"email":    "user@example.com",
 		"password": "secret123",
 	})
@@ -83,7 +83,7 @@ func main() {
 	// 5. Demonstrate throttled action
 	fmt.Println("\n5. Testing throttle protection...")
 	throttleDuration := 1000 * time.Millisecond
-	err = core.Action(core.ActionConfig{
+	err = cyre.Action(cyre.ActionConfig{
 		ID:       "api-call",
 		Throttle: &throttleDuration,
 	})
@@ -91,7 +91,7 @@ func main() {
 		log.Fatalf("❌ Failed to register throttled action: %v", err)
 	}
 
-	core.On("api-call", func(payload interface{}) interface{} {
+	cyre.On("api-call", func(payload interface{}) interface{} {
 		fmt.Printf("🌐 API call executed at %s\n", time.Now().Format("15:04:05.000"))
 		return map[string]interface{}{"response": "API data", "timestamp": time.Now().Unix()}
 	})
@@ -99,7 +99,7 @@ func main() {
 	// Make rapid calls to test throttling
 	fmt.Println("Making rapid calls (should be throttled)...")
 	for i := 0; i < 3; i++ {
-		resultChan := core.Call("api-call", map[string]interface{}{"request": i})
+		resultChan := cyre.Call("api-call", map[string]interface{}{"request": i})
 		result := <-resultChan
 
 		if result.OK {
@@ -115,16 +115,16 @@ func main() {
 	fmt.Println("Waiting for throttle to reset...")
 	time.Sleep(1100 * time.Millisecond)
 
-	resultChan = core.Call("api-call", map[string]interface{}{"request": "after-wait"})
-	result := <-resultChan
-	if result.OK {
+	resultChan = cyre.Call("api-call", map[string]interface{}{"request": "after-wait"})
+	callResult = <-resultChan
+	if callResult.OK {
 		fmt.Println("  After wait: ✅ Executed (throttle reset)")
 	}
 
 	// 6. Demonstrate debounced action
 	fmt.Println("\n6. Testing debounce protection...")
 	debounceDuration := 300 * time.Millisecond
-	err = core.Action(core.ActionConfig{
+	err = cyre.Action(cyre.ActionConfig{
 		ID:       "search-input",
 		Debounce: &debounceDuration,
 	})
@@ -132,7 +132,7 @@ func main() {
 		log.Fatalf("❌ Failed to register debounced action: %v", err)
 	}
 
-	core.On("search-input", func(payload interface{}) interface{} {
+	cyre.On("search-input", func(payload interface{}) interface{} {
 		if searchMap, ok := payload.(map[string]interface{}); ok {
 			term := searchMap["term"]
 			fmt.Printf("🔍 Search executed for: %v\n", term)
@@ -149,7 +149,7 @@ func main() {
 	searchTerms := []string{"a", "ab", "abc", "abcd"}
 
 	for _, term := range searchTerms {
-		core.Call("search-input", map[string]interface{}{"term": term})
+		cyre.Call("search-input", map[string]interface{}{"term": term})
 		fmt.Printf("  Queued search for: %s\n", term)
 		time.Sleep(50 * time.Millisecond) // Rapid typing
 	}
@@ -159,7 +159,7 @@ func main() {
 
 	// 7. Demonstrate change detection
 	fmt.Println("\n7. Testing change detection...")
-	err = core.Action(core.ActionConfig{
+	err = cyre.Action(cyre.ActionConfig{
 		ID:            "state-update",
 		DetectChanges: true,
 	})
@@ -167,7 +167,7 @@ func main() {
 		log.Fatalf("❌ Failed to register change detection action: %v", err)
 	}
 
-	core.On("state-update", func(payload interface{}) interface{} {
+	cyre.On("state-update", func(payload interface{}) interface{} {
 		fmt.Printf("📊 State updated: %v\n", payload)
 		return map[string]interface{}{"updated": true, "timestamp": time.Now().Unix()}
 	})
@@ -178,7 +178,7 @@ func main() {
 	testPayload := map[string]interface{}{"value": 42}
 
 	for i := 0; i < 3; i++ {
-		resultChan := core.Call("state-update", testPayload)
+		resultChan := cyre.Call("state-update", testPayload)
 		result := <-resultChan
 
 		if result.OK {
@@ -191,9 +191,9 @@ func main() {
 	// Now change the payload
 	fmt.Println("Changing payload...")
 	newPayload := map[string]interface{}{"value": 100}
-	resultChan = core.Call("state-update", newPayload)
-	result = <-resultChan
-	if result.OK {
+	resultChan = cyre.Call("state-update", newPayload)
+	callResult = <-resultChan
+	if callResult.OK {
 		fmt.Println("  New payload: ✅ Executed (payload changed)")
 	}
 
@@ -201,19 +201,19 @@ func main() {
 	fmt.Println("\n8. Testing action chaining...")
 
 	// Register validation action
-	err = core.Action(core.ActionConfig{ID: "validate-input"})
+	err = cyre.Action(cyre.ActionConfig{ID: "validate-input"})
 	if err != nil {
 		log.Fatalf("❌ Failed to register validation action: %v", err)
 	}
 
 	// Register processing action
-	err = core.Action(core.ActionConfig{ID: "process-input"})
+	err = cyre.Action(cyre.ActionConfig{ID: "process-input"})
 	if err != nil {
 		log.Fatalf("❌ Failed to register processing action: %v", err)
 	}
 
 	// Validation handler that chains to processing
-	core.On("validate-input", func(payload interface{}) interface{} {
+	cyre.On("validate-input", func(payload interface{}) interface{} {
 		fmt.Printf("🔍 Validating input: %v\n", payload)
 
 		if inputMap, ok := payload.(map[string]interface{}); ok {
@@ -234,7 +234,7 @@ func main() {
 	})
 
 	// Processing handler
-	core.On("process-input", func(payload interface{}) interface{} {
+	cyre.On("process-input", func(payload interface{}) interface{} {
 		fmt.Printf("⚙️  Processing validated input: %v\n", payload)
 		return map[string]interface{}{
 			"processed": true,
@@ -244,7 +244,7 @@ func main() {
 
 	// Trigger the chain
 	fmt.Println("Triggering validation chain...")
-	resultChan = core.Call("validate-input", map[string]interface{}{
+	resultChan = cyre.Call("validate-input", map[string]interface{}{
 		"data": "important user data",
 	})
 
@@ -257,18 +257,18 @@ func main() {
 
 	// 9. System health and metrics
 	fmt.Println("\n9. System health and metrics...")
-	fmt.Printf("System healthy: %t\n", core.IsHealthy())
+	fmt.Printf("System healthy: %t\n", cyre.IsHealthy())
 
-	systemMetrics := core.GetMetrics()
+	systemMetrics := cyre.GetMetrics()
 	fmt.Printf("System metrics available: %t\n", systemMetrics != nil)
 
-	stats := core.GetCyre().GetStats()
+	stats := cyre.GetStats()
 	fmt.Printf("System uptime: %v\n", stats["uptime"])
 	fmt.Printf("Actions registered: %v\n", stats["state"].(map[string]interface{})["actions"])
 
 	// 10. Retrieve stored payloads
 	fmt.Println("\n10. Retrieving stored data...")
-	if payload, exists := core.Get("user-login"); exists {
+	if payload, exists := cyre.Get("user-login"); exists {
 		fmt.Printf("Current user-login payload: %v\n", payload)
 	}
 

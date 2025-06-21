@@ -25,7 +25,7 @@ Cyre Go delivers **industry-leading performance** with zero-error reliability:
 ## Quick Start
 
 ```bash
-go get github.com/your-org/cyre-go
+go get github.com/neuralline/cyre-go
 ```
 
 ```go
@@ -33,7 +33,7 @@ package main
 
 import (
     "fmt"
-    "github.com/your-org/cyre-go"
+    "github.com/neuralline/cyre-go"
 )
 
 func main() {

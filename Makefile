@@ -5,16 +5,16 @@
 
 # Variables
 BINARY_NAME=cyre-go
-PACKAGE=github.com/your-org/cyre-go
+PACKAGE=github.com/neuralline/cyre-go
 BUILD_DIR=build
 EXAMPLE_DIR=example
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GIT_COMMIT=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-GO_VERSION=$(shell go version | awk '{print $$3}')
+GO_VERSION=$(shell go version | awk '{print $3}')
 
-# Build flags
-LDFLAGS=-ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION)"
+# Build flags (simple version)
+SIMPLE_LDFLAGS=-ldflags "-s -w"
 
 # Default target
 all: deps fmt vet lint test build
@@ -70,7 +70,31 @@ test-coverage: test
 # Run benchmarks
 benchmark:
 	@echo "⚡ Running benchmarks..."
-	go test -bench=. -benchmem -run=^$$ ./...
+	go test -bench=. -benchmem -run=^$ ./...
+
+# Run performance battle benchmark
+performance-battle:
+	@echo "🚀 PERFORMANCE BATTLE: Go vs TypeScript vs Rust"
+	@echo "================================================"
+	go run ./benchmark/performance_test.go
+
+# Run comprehensive performance tests
+perf-test:
+	@echo "🏁 Running comprehensive performance tests..."
+	@echo "Note: Using test benchmarks since performance runner needs restructuring"
+	@make benchmark-all
+
+# Quick performance check
+perf-quick:
+	@echo "⚡ Quick performance check..."
+	go run quick_bench.go
+
+# Performance with profiling
+perf-profile:
+	@echo "📊 Performance with profiling..."
+	mkdir -p $(BUILD_DIR)
+	go test -bench=BenchmarkThroughputMeasurement -benchtime=10s -cpuprofile=$(BUILD_DIR)/cpu.prof -memprofile=$(BUILD_DIR)/mem.prof ./benchmark
+	@echo "Profiles saved to $(BUILD_DIR)/"
 
 # Run benchmarks with CPU and memory profiling
 benchmark-profile:
@@ -89,11 +113,27 @@ build:
 	@echo "🔨 Building library..."
 	go build -v ./...
 
+# Test basic compilation
+test-compile:
+	@echo "🧪 Testing compilation..."
+	go build -v ./config
+	go build -v ./state  
+	go build -v ./sensor
+	go build -v ./timekeeper
+	go build -v ./core
+	go build -v .
+
 # Build example
 build-example:
 	@echo "🔨 Building example..."
 	mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-example ./$(EXAMPLE_DIR)
+	go build -v -o $(BUILD_DIR)/$(BINARY_NAME)-example ./$(EXAMPLE_DIR)
+
+# Build example with version info
+build-example-versioned:
+	@echo "🔨 Building example with optimizations..."
+	mkdir -p $(BUILD_DIR)
+	go build $(SIMPLE_LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-example ./$(EXAMPLE_DIR)
 
 # Run example
 example: build-example

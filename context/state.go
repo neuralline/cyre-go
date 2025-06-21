@@ -1,4 +1,4 @@
-// state/state.go
+// context/state.go
 // Central state management with O(1) lookups and concurrent safety
 
 package state
@@ -6,6 +6,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,55 @@ type ActionMetrics struct {
 }
 
 // === STATE STORES ===
+
+// PayloadStore is a specialized, concurrent-safe store for payloads
+type PayloadStore struct {
+	data map[string]interface{}
+	mu   sync.RWMutex
+}
+
+// NewPayloadStore creates a new payload store
+func NewPayloadStore() *PayloadStore {
+	return &PayloadStore{
+		data: make(map[string]interface{}),
+	}
+}
+
+// Set stores a payload
+func (ps *PayloadStore) Set(key string, value interface{}) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.data[key] = value
+}
+
+// Get retrieves a payload
+func (ps *PayloadStore) Get(key string) (interface{}, bool) {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	value, ok := ps.data[key]
+	return value, ok
+}
+
+// Delete removes a payload
+func (ps *PayloadStore) Delete(key string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.data, key)
+}
+
+// Clear removes all payloads
+func (ps *PayloadStore) Clear() {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.data = make(map[string]interface{})
+}
+
+// Count returns the number of items in the store
+func (ps *PayloadStore) Count() int {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	return len(ps.data)
+}
 
 // Store provides concurrent-safe storage with O(1) operations
 type Store[T any] struct {
@@ -144,7 +194,7 @@ type StateManager struct {
 	// Core stores with O(1) access
 	actions  *Store[*ActionConfig]  // Action configurations
 	handlers *Store[*Subscriber]    // Handler subscriptions
-	payloads *Store[interface{}]    // Current payload data
+	payloads *PayloadStore          // Specialized payload store
 	metrics  *Store[*ActionMetrics] // Performance metrics
 
 	// Protection state
@@ -167,7 +217,7 @@ func Initialize() *StateManager {
 		GlobalState = &StateManager{
 			actions:     NewStore[*ActionConfig](config.MaxRetainedActions),
 			handlers:    NewStore[*Subscriber](config.MaxRetainedActions),
-			payloads:    NewStore[interface{}](config.MaxRetainedPayloads),
+			payloads:    NewPayloadStore(),
 			metrics:     NewStore[*ActionMetrics](config.MaxRetainedActions),
 			startTime:   time.Now(),
 			initialized: true,
@@ -217,7 +267,7 @@ func (sm *StateManager) GetAction(actionID string) (*ActionConfig, bool) {
 // === HANDLER MANAGEMENT ===
 
 // SetHandler stores handler subscription (Cyre's subscriber equivalent)
-func (sm *StateManager) SetHandler(actionID string, handler HandlerFunc) error {
+func (sm *StateManager) SetHandler(actionID string, handler func(payload interface{}) interface{}) error {
 	if actionID == "" {
 		return fmt.Errorf("actionID cannot be empty")
 	}
@@ -228,7 +278,7 @@ func (sm *StateManager) SetHandler(actionID string, handler HandlerFunc) error {
 	subscriber := &Subscriber{
 		ID:        fmt.Sprintf("%s_handler", actionID),
 		ActionID:  actionID,
-		Handler:   handler,
+		Handler:   HandlerFunc(handler),
 		CreatedAt: time.Now(),
 	}
 
@@ -237,9 +287,11 @@ func (sm *StateManager) SetHandler(actionID string, handler HandlerFunc) error {
 }
 
 // GetHandler retrieves handler for action
-func (sm *StateManager) GetHandler(actionID string) (HandlerFunc, bool) {
+func (sm *StateManager) GetHandler(actionID string) (func(payload interface{}) interface{}, bool) {
 	if subscriber, exists := sm.handlers.Get(actionID); exists {
-		return subscriber.Handler, true
+		return func(payload interface{}) interface{} {
+			return subscriber.Handler(payload)
+		}, true
 	}
 	return nil, false
 }
@@ -261,6 +313,14 @@ func (sm *StateManager) ComparePayload(actionID string, newPayload interface{}) 
 	currentPayload, exists := sm.GetPayload(actionID)
 	if !exists {
 		return true // No previous payload, so it's changed
+	}
+
+	// Handle nil payloads explicitly
+	if newPayload == nil && currentPayload == nil {
+		return false // Both are nil, no change
+	}
+	if newPayload == nil || currentPayload == nil {
+		return true // One is nil, the other isn't, so it's changed
 	}
 
 	// Deep comparison using JSON marshaling (fast enough for most cases)
@@ -367,31 +427,23 @@ func (sm *StateManager) ClearDebounceTimer(actionID string) {
 
 // ForgetAction removes action and all associated state (Cyre's forget equivalent)
 func (sm *StateManager) ForgetAction(actionID string) bool {
-	// Remove from all stores
-	actionRemoved := sm.actions.Delete(actionID)
+	// Clean up all related state
+	sm.actions.Delete(actionID)
 	sm.handlers.Delete(actionID)
 	sm.payloads.Delete(actionID)
 	sm.metrics.Delete(actionID)
-
-	// Clean protection state
-	sm.throttleMap.Delete(actionID)
 	sm.ClearDebounceTimer(actionID)
-
-	return actionRemoved
+	sm.throttleMap.Delete(actionID)
+	return true
 }
 
-// Clear removes all state (Cyre's clear equivalent)
+// Clear removes all state from all stores
 func (sm *StateManager) Clear() {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	// Clear all stores
 	sm.actions.Clear()
 	sm.handlers.Clear()
 	sm.payloads.Clear()
 	sm.metrics.Clear()
 
-	// Clear protection maps
 	sm.throttleMap.Range(func(key, value interface{}) bool {
 		sm.throttleMap.Delete(key)
 		return true
@@ -418,11 +470,23 @@ func (sm *StateManager) IsInitialized() bool {
 // GetStats returns system statistics
 func (sm *StateManager) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"actions":     sm.actions.Count(),
-		"handlers":    sm.handlers.Count(),
-		"payloads":    sm.payloads.Count(),
-		"metrics":     sm.metrics.Count(),
-		"uptime":      time.Since(sm.startTime),
-		"initialized": sm.initialized,
+		"actions":       sm.actions.Count(),
+		"handlers":      sm.handlers.Count(),
+		"payloads":      sm.payloads.Count(),
+		"metrics":       sm.metrics.Count(),
+		"goroutines":    runtime.NumGoroutine(),
+		"uptime_ns":     time.Since(sm.startTime).Nanoseconds(),
+		"initialized":   sm.initialized,
+		"throttle_keys": sm.countMapKeys(&sm.throttleMap),
+		"debounce_keys": sm.countMapKeys(&sm.debounceMap),
 	}
+}
+
+func (sm *StateManager) countMapKeys(m *sync.Map) int {
+	count := 0
+	m.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	return count
 }

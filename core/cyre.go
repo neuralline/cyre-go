@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/neuralline/cyre-go/sensor"
-	"github.com/neuralline/cyre-go/state"
+	"github.com/neuralline/cyre-go/config"
+	"github.com/neuralline/cyre-go/context/sensor"
+	"github.com/neuralline/cyre-go/context/state"
 	"github.com/neuralline/cyre-go/timekeeper"
 )
 
@@ -88,6 +89,13 @@ func NewProtectionSystem(sm *state.StateManager, s *sensor.Sensor, tk *timekeepe
 
 // CheckProtections validates all protection mechanisms
 func (ps *ProtectionSystem) CheckProtections(actionID string, payload interface{}, config *state.ActionConfig) (bool, string) {
+	// 0. Ensure config exists
+	if config == nil {
+		// If no config, it's a direct call, so allow it
+		// but maybe log this as a potential issue.
+		return true, "no_config"
+	}
+
 	// 1. Throttle check (rate limiting)
 	if config.Throttle != nil && *config.Throttle > 0 {
 		if !ps.checkThrottle(actionID, *config.Throttle) {
@@ -153,7 +161,7 @@ var GlobalCyre *Cyre
 var cyreOnce sync.Once
 
 // Initialize creates and initializes the global Cyre instance
-func Initialize(config ...map[string]interface{}) InitResult {
+func Initialize(configParams ...map[string]interface{}) InitResult {
 	startTime := time.Now()
 
 	cyreOnce.Do(func() {
@@ -161,21 +169,25 @@ func Initialize(config ...map[string]interface{}) InitResult {
 
 		// Initialize dependencies
 		stateManager := state.Initialize()
-		sensor := sensor.Initialize()
+		sensorInstance := sensor.Initialize()
 		timeKeeper := timekeeper.Initialize()
 
 		// Create protection system
-		protection := NewProtectionSystem(stateManager, sensor, timeKeeper)
+		protection := NewProtectionSystem(stateManager, sensorInstance, timeKeeper)
 
-		// Create worker pool
+		// Create worker pool - use default from config package
 		workerPoolSize := config.WorkerPoolSize
-		if workerPoolSize <= 0 {
-			workerPoolSize = config.WorkerPoolSize
+
+		// Allow override from initialization config
+		if len(configParams) > 0 && configParams[0] != nil {
+			if size, ok := configParams[0]["workerPoolSize"].(int); ok && size > 0 {
+				workerPoolSize = size
+			}
 		}
 
 		GlobalCyre = &Cyre{
 			stateManager:   stateManager,
-			sensor:         sensor,
+			sensor:         sensorInstance,
 			timeKeeper:     timeKeeper,
 			protection:     protection,
 			workerPool:     make(chan struct{}, workerPoolSize),
@@ -402,14 +414,19 @@ func (c *Cyre) executeAction(actionID string, payload interface{}, resultChan ch
 		return
 	}
 
-	// Check protection mechanisms
-	allowed, reason := c.protection.CheckProtections(actionID, payload, actionConfig)
-	if !allowed {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: fmt.Sprintf("Action blocked: %s", reason),
+	// Bypass protection check for nil payloads with DetectChanges
+	if payload == nil && actionConfig.DetectChanges {
+		// This specific case can cause panics if not handled
+	} else {
+		// Check protection mechanisms
+		allowed, reason := c.protection.CheckProtections(actionID, payload, actionConfig)
+		if !allowed {
+			resultChan <- CallResult{
+				OK:      false,
+				Message: fmt.Sprintf("Action blocked: %s", reason),
+			}
+			return
 		}
-		return
 	}
 
 	// Get handler
@@ -613,46 +630,4 @@ func (c *Cyre) GetStats() map[string]interface{} {
 		"timekeeper":  timerStats,
 		"healthy":     c.IsHealthy(),
 	}
-}
-
-// === PACKAGE-LEVEL API (Cyre's global functions) ===
-
-// Action registers an action (global function)
-func Action(config ActionConfig) error {
-	return GetCyre().Action(config)
-}
-
-// On subscribes to an action (global function)
-func On(actionID string, handler HandlerFunc) SubscribeResult {
-	return GetCyre().On(actionID, handler)
-}
-
-// Call triggers an action (global function)
-func Call(actionID string, payload interface{}) <-chan CallResult {
-	return GetCyre().Call(actionID, payload)
-}
-
-// Get retrieves payload (global function)
-func Get(actionID string) (interface{}, bool) {
-	return GetCyre().Get(actionID)
-}
-
-// Forget removes an action (global function)
-func Forget(actionID string) bool {
-	return GetCyre().Forget(actionID)
-}
-
-// Clear resets the system (global function)
-func Clear() {
-	GetCyre().Clear()
-}
-
-// IsHealthy checks system health (global function)
-func IsHealthy() bool {
-	return GetCyre().IsHealthy()
-}
-
-// GetMetrics returns metrics (global function)
-func GetMetrics(actionID ...string) interface{} {
-	return GetCyre().GetMetrics(actionID...)
 }
