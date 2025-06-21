@@ -4,14 +4,13 @@
 package timekeeper
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/neuralline/cyre-go/config"
-	"github.com/neuralline/cyre-go/sensor"
+	"github.com/neuralline/cyre-go/context"
 )
 
 /*

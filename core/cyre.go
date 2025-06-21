@@ -4,14 +4,12 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/neuralline/cyre-go/config"
-	"github.com/neuralline/cyre-go/context/sensor"
-	"github.com/neuralline/cyre-go/context/state"
+	"github.com/neuralline/cyre-go/context"
 	"github.com/neuralline/cyre-go/timekeeper"
 )
 
@@ -168,8 +166,8 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Initialize dependencies
-		stateManager := state.Initialize()
-		sensorInstance := sensor.Initialize()
+		stateManager := context.Initialize()  // ✅ Correct
+		sensorInstance := context.GetSensor() // ✅ Correct
 		timeKeeper := timekeeper.Initialize()
 
 		// Create protection system

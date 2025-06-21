@@ -1,7 +1,7 @@
 // context/state.go
 // Central state management with O(1) lookups and concurrent safety
 
-package state
+package context
 
 import (
 	"encoding/json"
