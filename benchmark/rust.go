@@ -1,4 +1,4 @@
-// benchmark/rust_inspired.go
+// benchmark/rust.go
 // Go optimizations inspired by Rust Cyre's 900K ops/sec performance
 
 package main

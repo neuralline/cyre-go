@@ -1,4 +1,4 @@
-// benchmark/target_900k.go
+// benchmark/performance.go
 // Optimized benchmark targeting 900K ops/sec to match Rust performance
 
 package main

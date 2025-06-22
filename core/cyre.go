@@ -262,7 +262,7 @@ func (c *Cyre) On(actionID string, handler HandlerFunc) SubscribeResult {
 	}
 }
 
-// Call triggers an action by ID with payload using clean pipeline execution
+// Call triggers an action by ID with payload using fast path optimization
 func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
 
@@ -290,7 +290,14 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 		return resultChan
 	}
 
-	// Execute pipeline and handle result
+	// FAST PATH OPTIMIZATION: Skip pipeline execution entirely
+	if ioConfig.HasFastPath {
+		// Fast path: no operators, no pipeline, direct execution
+		go c.handler(actionID, payload, resultChan)
+		return resultChan
+	}
+
+	// SLOW PATH: Execute full pipeline and handle result
 	pipelineResult := schema.ExecutePipeline(actionID, payload, ioConfig, c.stateManager)
 
 	// Handle pipeline errors
@@ -312,11 +319,6 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 		}
 		close(resultChan)
 		return resultChan
-	}
-
-	// Check if scheduling is needed
-	if c.requiresScheduling(ioConfig, pipelineResult) {
-		return c.scheduleExecution(actionID, pipelineResult.Payload, ioConfig, pipelineResult)
 	}
 
 	// Immediate execution with pipeline-processed payload
@@ -373,7 +375,7 @@ func (c *Cyre) Shutdown() {
 	defer c.mu.Unlock()
 
 	// Stop timekeeper
-	c.timeKeeper.Stop()
+	c.timeKeeper.Hibernate()
 
 	// Clear state
 	c.stateManager.Clear()
@@ -484,111 +486,6 @@ func GetCyre() *Cyre {
 		Initialize()
 	}
 	return GlobalCyre
-}
-
-// requiresScheduling determines if action needs TimeKeeper scheduling
-func (c *Cyre) requiresScheduling(ioConfig *types.IO, pipelineResult schema.ExecutionResult) bool {
-	// Check for delay requirement from pipeline
-	if pipelineResult.Delay != nil && *pipelineResult.Delay > 0 {
-		return true
-	}
-
-	// Check action configuration for scheduling
-	return schema.IsScheduledAction(ioConfig)
-}
-
-// scheduleExecution handles all scheduling using TimeKeeper
-func (c *Cyre) scheduleExecution(actionID string, processedPayload interface{}, ioConfig *types.IO, pipelineResult schema.ExecutionResult) <-chan CallResult {
-	resultChan := make(chan CallResult, 1)
-
-	// Handle pipeline-detected delay (from debounce operator)
-	if pipelineResult.Delay != nil && *pipelineResult.Delay > 0 {
-		err := c.timeKeeper.Wait(*pipelineResult.Delay, func() {
-			execChan := make(chan CallResult, 1)
-			c.handler(actionID, processedPayload, execChan)
-			result := <-execChan
-			resultChan <- result
-			close(resultChan)
-		})
-
-		if err != nil {
-			resultChan <- CallResult{
-				OK:      false,
-				Message: "Failed to schedule delayed execution",
-				Error:   err,
-			}
-			close(resultChan)
-		}
-
-		return resultChan
-	}
-
-	// Get scheduling configuration from action
-	delay, interval, repeat := schema.GetSchedulingConfig(ioConfig)
-
-	// Handle interval actions
-	if interval > 0 {
-		var repeatValue interface{} = true // Default infinite
-		if repeat > 0 {
-			repeatValue = repeat
-		} else if repeat == 0 {
-			repeatValue = 1 // Single execution
-		}
-
-		err := c.timeKeeper.Keep(
-			interval,
-			func() {
-				execChan := make(chan CallResult, 1)
-				c.handler(actionID, processedPayload, execChan)
-				<-execChan // Consume result but don't forward for intervals
-			},
-			repeatValue,
-			fmt.Sprintf("%s_interval", actionID),
-			delay, // Optional delay before first execution
-		)
-
-		if err != nil {
-			resultChan <- CallResult{
-				OK:      false,
-				Message: "Failed to schedule interval action",
-				Error:   err,
-			}
-		} else {
-			resultChan <- CallResult{
-				OK:      true,
-				Message: "Interval action scheduled successfully",
-			}
-		}
-
-		close(resultChan)
-		return resultChan
-	}
-
-	// Handle delayed actions only
-	if delay > 0 {
-		err := c.timeKeeper.Wait(delay, func() {
-			execChan := make(chan CallResult, 1)
-			c.handler(actionID, processedPayload, execChan)
-			result := <-execChan
-			resultChan <- result
-			close(resultChan)
-		})
-
-		if err != nil {
-			resultChan <- CallResult{
-				OK:      false,
-				Message: "Failed to schedule delayed action",
-				Error:   err,
-			}
-			close(resultChan)
-		}
-
-		return resultChan
-	}
-
-	// Fallback to immediate execution
-	go c.handler(actionID, processedPayload, resultChan)
-	return resultChan
 }
 
 // handleActionChain handles action chaining (IntraLinks)

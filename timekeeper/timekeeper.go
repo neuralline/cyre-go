@@ -433,11 +433,6 @@ func (tk *TimeKeeper) Activate(id string, active bool) bool {
 
 // === STATUS AND UTILITY ===
 
-// IsHealthy returns true if timing system is healthy
-func (tk *TimeKeeper) IsHealthy() bool {
-	return atomic.LoadInt32(&tk.hibernating) == 0
-}
-
 // GetStats returns simplified timing statistics
 func (tk *TimeKeeper) GetStats() map[string]interface{} {
 	activeTimers := tk.stateManager.Timeline().GetActive()
@@ -456,22 +451,4 @@ func (tk *TimeKeeper) GetStats() map[string]interface{} {
 		"driftTotal":      tk.quartz.driftTotal,
 		"tickInterval":    tk.quartz.tickInterval,
 	}
-}
-
-// Stop shuts down the TimeKeeper
-func (tk *TimeKeeper) Stop() {
-	tk.stopQuartz()
-	tk.Clear()
-}
-
-// === CONVENIENCE HELPERS ===
-
-// Now returns high-precision current time
-func Now() time.Time {
-	return time.Now()
-}
-
-// Sleep performs high-precision sleep
-func Sleep(duration time.Duration) {
-	time.Sleep(duration)
 }
