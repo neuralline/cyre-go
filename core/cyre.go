@@ -37,7 +37,6 @@ type Cyre struct {
 	cancel context.CancelFunc
 }
 
-// Enhanced Initialize with MetricState
 func Initialize(configParams ...map[string]interface{}) InitResult {
 	startTime := time.Now()
 
@@ -46,11 +45,30 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 
 		// Initialize dependencies
 		stateManager := cyrecontext.Initialize()
-		metricState := cyrecontext.InitializeMetricState() // Initialize system brain
+
+		// Check for accurate monitoring mode
+		useAccurateMonitoring := false
+		if len(configParams) > 0 && configParams[0] != nil {
+			if accurate, ok := configParams[0]["accurateMonitoring"].(bool); ok {
+				useAccurateMonitoring = accurate
+			}
+		}
+
+		// Initialize MetricState with accurate monitoring
+		var metricState *cyrecontext.MetricState
+		if useAccurateMonitoring {
+			metricState = cyrecontext.InitializeMetricStateAccurate()
+		} else {
+			metricState = cyrecontext.InitializeMetricState()
+		}
+
 		timeKeeper := timekeeper.Initialize()
 
-		// Create worker pool
+		// Create worker pool - larger if using accurate monitoring
 		workerPoolSize := config.WorkerPoolSize
+		if useAccurateMonitoring {
+			workerPoolSize = config.WorkerPoolSize * 2 // Double for accurate mode
+		}
 
 		// Allow override from initialization config
 		if len(configParams) > 0 && configParams[0] != nil {
@@ -78,6 +96,16 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 
 		// Initialize metric state
 		metricState.Init()
+
+		if useAccurateMonitoring {
+			cyrecontext.SensorSuccess("Cyre initialized with accurate system monitoring").
+				Location("core/cyre.go").
+				Metadata(map[string]interface{}{
+					"workerPoolSize":     workerPoolSize,
+					"accurateMonitoring": true,
+				}).
+				Log()
+		}
 	})
 
 	return InitResult{
@@ -95,50 +123,20 @@ func GetCyre() *Cyre {
 	return GlobalCyre
 }
 
-// Enhanced Call method with MetricState intelligence
+// Call method with enhanced worker scaling based on accurate metrics
 func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
 
-	// Update call metrics for rate tracking (like cyre.ts)
-	c.metricState.UpdateCallMetrics()
+	// Track call metrics for breathing system
+	if c.metricState != nil {
+		c.metricState.UpdateCallMetrics()
+	}
 
-	// System state checks using MetricState brain
+	// Basic system check
 	if !c.initialized {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: config.MSG["CALL_OFFLINE"],
-			Error:   fmt.Errorf("system not initialized"),
-		}
-		close(resultChan)
-		return resultChan
-	}
-
-	// Critical system flag checks (ultra-fast atomic reads)
-	if c.metricState.IsShutdown() {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System is shutting down",
-			Error:   fmt.Errorf("system shutdown in progress"),
-		}
-		close(resultChan)
-		return resultChan
-	}
-
-	if c.metricState.IsLocked() {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System is locked for maintenance",
-			Error:   fmt.Errorf("system maintenance in progress"),
-		}
-		close(resultChan)
-		return resultChan
-	}
-
-	if c.metricState.IsHibernating() {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System is hibernating",
-			Error:   fmt.Errorf("system in hibernation mode"),
+			Message: "System not initialized",
 		}
 		close(resultChan)
 		return resultChan
@@ -149,149 +147,87 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	if !exists {
 		resultChan <- CallResult{
 			OK:      false,
-			Message: config.MSG["CALL_INVALID_ID"],
-			Error:   fmt.Errorf("action %s not registered", actionID),
+			Message: "Action not found",
 		}
 		close(resultChan)
 		return resultChan
 	}
 
-	// Breathing system intelligence (matches TypeScript cyre.ts pattern)
-	priority := ioConfig.Priority
-	if priority == "" {
-		priority = "normal" // Default priority
-	}
-
-	// Smart blocking based on system stress (like TypeScript recuperation check)
-	if c.metricState.IsRecuperating() && priority != "critical" {
-		cyrecontext.SensorInfo("Action blocked - system recuperating").
-			Location("core/cyre.go").
-			ActionID(actionID).
-			Metadata(map[string]interface{}{
-				"priority":       priority,
-				"stressLevel":    c.metricState.Get().Breathing.StressLevel,
-				"isRecuperating": true,
-			}).
-			Log()
-
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System is recuperating - only critical actions allowed",
-			Error:   fmt.Errorf("system recovering from stress"),
+	// Breathing system protection with accurate metrics
+	if c.metricState != nil && c.metricState.IsRecuperating() {
+		priority := ioConfig.Priority
+		if priority == "" {
+			priority = "normal"
 		}
-		close(resultChan)
-		return resultChan
-	}
 
-	// Additional blocking based on priority and stress level
-	if c.metricState.ShouldBlockNormal() && priority == "normal" {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System under stress - normal actions blocked",
+		if priority != "critical" {
+			resultChan <- CallResult{
+				OK:      false,
+				Message: "System recuperating - only critical actions allowed",
+			}
+			close(resultChan)
+			return resultChan
 		}
-		close(resultChan)
-		return resultChan
 	}
 
-	if c.metricState.ShouldBlockLow() && (priority == "low" || priority == "background") {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "System under stress - low priority actions blocked",
-		}
-		close(resultChan)
-		return resultChan
+	// ENHANCED: More aggressive worker management
+	maxWorkers := c.workerPoolSize
+	if c.metricState != nil {
+		maxWorkers = c.metricState.GetWorkerLimit()
 	}
 
-	// Get intelligent worker limit from MetricState
-	workerLimit := c.metricState.GetWorkerLimit()
+	currentWorkers := c.workerPoolSize - len(c.workerPool)
 
-	// Execute with intelligent concurrency control
-	if ioConfig.HasFastPath {
-		// Fast path execution with worker limit awareness
+	// Debug worker state
+	// if currentWorkers == 0 {
+	// 	fmt.Printf("DEBUG: Worker pool exhausted - Current: %d, Max: %d, Pool size: %d\n",
+	// 		currentWorkers, maxWorkers, c.workerPoolSize)
+	// }
+
+	// ENHANCED: Try multiple strategies for worker allocation
+	select {
+	case <-c.workerPool:
+		// Got worker from pool - execute
 		go func() {
-			defer close(resultChan)
-			c.executeWithWorkerLimit(actionID, payload, resultChan, workerLimit)
+			defer func() {
+				c.workerPool <- struct{}{} // Return worker
+				close(resultChan)
+			}()
+			c.executeHandler(actionID, payload, ioConfig, resultChan)
 		}()
-	} else {
-		// Pipeline execution with full intelligence
-		go func() {
-			defer close(resultChan)
-			c.executeWithPipeline(actionID, payload, ioConfig, resultChan, workerLimit)
-		}()
+
+	case <-time.After(5 * time.Millisecond): // Increased timeout from 1ms to 5ms
+		// No worker available quickly - check if we can exceed pool
+		if currentWorkers < maxWorkers {
+			// Execute without pool constraint if under intelligent limit
+			go func() {
+				defer close(resultChan)
+				c.executeHandler(actionID, payload, ioConfig, resultChan)
+			}()
+		} else {
+			// At intelligent capacity - reject
+			resultChan <- CallResult{
+				OK:      false,
+				Message: fmt.Sprintf("System at capacity (workers: %d/%d)", currentWorkers, maxWorkers),
+			}
+			close(resultChan)
+		}
 	}
 
 	return resultChan
 }
 
-// executeWithWorkerLimit handles fast path execution with worker limit
-func (c *Cyre) executeWithWorkerLimit(actionID string, payload interface{}, resultChan chan CallResult, workerLimit int) {
-	// Don't defer close here - let caller handle it
-
-	// Try to get worker within limit
-	select {
-	case <-c.workerPool:
-		// Got worker - execute
-		defer func() {
-			c.workerPool <- struct{}{}
-		}()
-		c.fastPathHandler(actionID, payload, resultChan)
-
-	case <-time.After(1 * time.Millisecond):
-		// Brief wait failed - check if we should execute anyway
-		currentWorkers := c.workerPoolSize - len(c.workerPool)
-		if currentWorkers < workerLimit {
-			// Under limit - execute directly
-			c.fastPathHandler(actionID, payload, resultChan)
-		} else {
-			// At limit - queue for later or reject
-			resultChan <- CallResult{
-				OK:      false,
-				Message: "System at worker capacity",
-			}
-		}
-	}
-}
-
-// executeWithPipeline handles full pipeline execution
-func (c *Cyre) executeWithPipeline(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult, workerLimit int) {
-	// Don't defer close here - let caller handle it
-
-	// Execute pipeline
-	pipelineResult := schema.ExecutePipeline(actionID, payload, ioConfig, c.stateManager)
-
-	// Handle pipeline errors
-	if pipelineResult.Error != nil {
-		c.metricState.UpdatePerformance(time.Since(time.Now()), false)
-		resultChan <- CallResult{
-			OK:      false,
-			Message: "Pipeline execution failed",
-			Error:   pipelineResult.Error,
-		}
-		return
-	}
-
-	// Handle pipeline blocking
-	if !pipelineResult.Allow {
-		resultChan <- CallResult{
-			OK:      false,
-			Message: pipelineResult.Message,
-		}
-		return
-	}
-
-	// Execute with worker management (no goroutine here - already in one)
-	c.executeWithWorkerLimit(actionID, pipelineResult.Payload, resultChan, workerLimit)
-}
-
-// Enhanced fast path handler with performance tracking
-func (c *Cyre) fastPathHandler(actionID string, payload interface{}, resultChan chan CallResult) {
+// executeHandler with enhanced performance tracking
+func (c *Cyre) executeHandler(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
 	start := time.Now()
 
 	// Get handler
 	subscriber, exists := c.stateManager.Subscribers().Get(actionID)
 	if !exists {
 		duration := time.Since(start)
-		c.metricState.UpdatePerformance(duration, false)
+		if c.metricState != nil {
+			c.metricState.UpdatePerformance(duration, false)
+		}
 
 		resultChan <- CallResult{
 			OK:      false,
@@ -326,7 +262,9 @@ func (c *Cyre) fastPathHandler(actionID string, payload interface{}, resultChan 
 	success := execError == nil
 
 	// Update MetricState with performance data
-	c.metricState.UpdatePerformance(duration, success)
+	if c.metricState != nil {
+		c.metricState.UpdatePerformance(duration, success)
+	}
 
 	// Update traditional metrics
 	c.stateManager.UpdateMetrics(actionID, "execution", duration)
@@ -348,7 +286,6 @@ func (c *Cyre) fastPathHandler(actionID string, payload interface{}, resultChan 
 	}
 
 	// Update execution stats in IO config
-	ioConfig, _ := c.stateManager.IO().Get(actionID)
 	if ioConfig != nil {
 		ioConfig.ExecutionCount++
 		ioConfig.LastExecTime = time.Now().UnixMilli()

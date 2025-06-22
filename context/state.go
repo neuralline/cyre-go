@@ -1,6 +1,5 @@
-// context/state.go
-// Updated StateManager with MetricState integration
-// Simplified to focus on data storage while MetricState handles intelligence
+// context/state.go - FIXED METRICSTATE IMPORTS
+// Update the StateManager to properly reference MetricState
 
 package context
 
@@ -33,7 +32,7 @@ var (
 	initOnce    sync.Once
 )
 
-// StateManager remains the same but with MetricState integration
+// StateManager with MetricState integration
 type StateManager struct {
 	// Core stores with O(1) access
 	ioStore     *Store[*types.IO]      // IoStore: Channel configurations
@@ -50,7 +49,7 @@ type StateManager struct {
 	// System state (now primarily for backward compatibility)
 	systemState config.SystemState
 
-	// MetricState integration
+	// MetricState integration - FIXED TYPE REFERENCE
 	metricState *MetricState // Reference to system brain
 
 	// System metadata

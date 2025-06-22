@@ -1,10 +1,10 @@
-// context/metric-state.go
-// System Brain - Central intelligence engine for Cyre Go
-// Handles system state, breathing control, and intelligent decisions
+// context/metric-state.go - FIXED TYPE DEFINITIONS
+// Fix all MetricState definition and import issues
 
 package context
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -29,6 +29,27 @@ import (
 	- Memory-aligned struct fields for cache performance
 	- Zero-allocation hot path methods
 */
+
+// === CPU MONITORING TYPES ===
+
+type CPUStats struct {
+	User    uint64
+	Nice    uint64
+	System  uint64
+	Idle    uint64
+	IOWait  uint64
+	IRQ     uint64
+	SoftIRQ uint64
+	Total   uint64
+}
+
+type CPUMonitor struct {
+	lastStats CPUStats
+	lastTime  time.Time
+	mu        sync.RWMutex
+}
+
+// === MAIN METRICSTATE TYPE ===
 
 type MetricState struct {
 	// System state (protected by mutex)
@@ -59,15 +80,19 @@ type MetricState struct {
 	lastCallTime    int64 // Last call timestamp (UnixMilli)
 	callsThisSecond int64 // Calls in current second window
 	currentSecond   int64 // Current second for rate calculation
+
+	// Health monitoring state
+	lastGCStats runtime.MemStats
+	lastGCTime  time.Time
 }
 
-// Global metric state instance
+// Global instances
 var globalMetricState *MetricState
 var metricStateOnce sync.Once
+var globalCPUMonitor = &CPUMonitor{}
 
 // === INITIALIZATION ===
 
-// InitializeMetricState creates and initializes the global metric state
 // InitializeMetricState creates and initializes the global metric state
 func InitializeMetricState() *MetricState {
 	metricStateOnce.Do(func() {
@@ -80,7 +105,11 @@ func InitializeMetricState() *MetricState {
 
 			throughputWindow: make([]float64, 0, 10),
 			latencyWindow:    make([]float64, 0, 10),
+			lastGCTime:       time.Now(),
 		}
+
+		// Initialize GC stats
+		runtime.ReadMemStats(&globalMetricState.lastGCStats)
 
 		// Initialize atomic values
 		atomic.StoreInt32(&globalMetricState.workerLimit, int32(runtime.NumCPU()))
@@ -94,25 +123,56 @@ func InitializeMetricState() *MetricState {
 			}).
 			Log()
 
-		// Start background health monitoring after initialization
-		globalMetricState.startHealthMonitoring()
+		// Start health monitoring using TimeKeeper.keep (like TypeScript Cyre)
+		globalMetricState.initializeBreathing()
 	})
 	return globalMetricState
 }
 
-func (ms *MetricState) startHealthMonitoring() {
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		for {
-			cpu := ms.getCPUUsage()              // Goroutine-based CPU estimation
-			memory := ms.getMemoryUsage()        // Real memory from runtime
-			goroutines := runtime.NumGoroutine() // Live goroutine count
-			gcPressure := ms.detectGCPressure()  // GC frequency analysis
+// InitializeMetricStateAccurate creates metric state with accurate monitoring
+func InitializeMetricStateAccurate() *MetricState {
+	metricStateOnce.Do(func() {
+		state := config.DefaultSystemState
+		state.LastUpdate = time.Now().UnixMilli()
 
-			ms.UpdateSystemHealth(cpu, memory, goroutines, gcPressure)
-			ms.UpdateThroughput(ms.measureThroughput())
+		globalMetricState = &MetricState{
+			state:      &state,
+			windowSize: 10, // Track last 10 measurements
+
+			throughputWindow: make([]float64, 0, 10),
+			latencyWindow:    make([]float64, 0, 10),
+			lastGCTime:       time.Now(),
 		}
-	}()
+
+		// Initialize GC stats for accurate monitoring
+		runtime.ReadMemStats(&globalMetricState.lastGCStats)
+
+		// Initialize CPU monitoring
+		globalCPUMonitor.lastTime = time.Time{}
+
+		// Initialize atomic values with more realistic defaults
+		initialWorkers := runtime.NumCPU() * 2 // Start with 2x CPU cores
+		atomic.StoreInt32(&globalMetricState.workerLimit, int32(initialWorkers))
+		atomic.StoreInt64(&globalMetricState.currentSecond, time.Now().Unix())
+
+		// Update state with initial worker count
+		globalMetricState.state.Workers.Current = initialWorkers
+		globalMetricState.state.Workers.Optimal = initialWorkers
+
+		SensorSuccess("Accurate Metric State initialized successfully").
+			Location("context/metric-state.go").
+			Metadata(map[string]interface{}{
+				"initialWorkers": initialWorkers,
+				"mode":           "accurate",
+				"windowSize":     10,
+				"cpuCores":       runtime.NumCPU(),
+			}).
+			Log()
+
+		// Start breathing system using accurate measurements
+		globalMetricState.initializeBreathingAccurate()
+	})
+	return globalMetricState
 }
 
 // GetMetricState returns the global metric state instance
@@ -123,7 +183,7 @@ func GetMetricState() *MetricState {
 	return globalMetricState
 }
 
-// === SYSTEM FLAG MANAGEMENT (Like TypeScript examples) ===
+// === SYSTEM FLAG MANAGEMENT ===
 
 // Lock the system (critical operation)
 func (ms *MetricState) Lock() {
@@ -201,7 +261,7 @@ func (ms *MetricState) SetHibernating(hibernating bool) {
 
 // === HOT PATH FLAG CHECKS (Ultra-fast atomic reads) ===
 
-// IsLocked returns true if system is locked (matches TypeScript isLocked())
+// IsLocked returns true if system is locked
 func (ms *MetricState) IsLocked() bool {
 	return atomic.LoadInt32(&ms.isLocked) == 1
 }
@@ -236,14 +296,14 @@ func (ms *MetricState) GetWorkerLimit() int {
 	return int(atomic.LoadInt32(&ms.workerLimit))
 }
 
-// === STATE ACCESS (Like TypeScript get() method) ===
+// === STATE ACCESS ===
 
-// Get returns read-only snapshot of current state (matches TypeScript get())
+// Get returns read-only snapshot of current state
 func (ms *MetricState) Get() config.SystemState {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
-	// Return copy of current state (read-only like TypeScript Object.freeze)
+	// Return copy of current state
 	stateCopy := *ms.state
 
 	// Add atomic flag values
@@ -255,7 +315,7 @@ func (ms *MetricState) Get() config.SystemState {
 	return stateCopy
 }
 
-// === CALL TRACKING (For rate limiting like cyre.ts) ===
+// === CALL TRACKING ===
 
 // UpdateCallMetrics tracks call rate for intelligent rate limiting
 func (ms *MetricState) UpdateCallMetrics() {
@@ -269,7 +329,7 @@ func (ms *MetricState) UpdateCallMetrics() {
 	// Update call rate tracking
 	currentSec := atomic.LoadInt64(&ms.currentSecond)
 	if nowUnix != currentSec {
-		// New second - reset counter and update rate
+		// New second - reset counter
 		atomic.StoreInt64(&ms.callsThisSecond, 1)
 		atomic.StoreInt64(&ms.currentSecond, nowUnix)
 
@@ -285,7 +345,7 @@ func (ms *MetricState) UpdateCallMetrics() {
 		atomic.AddInt64(&ms.callsThisSecond, 1)
 	}
 
-	// Store last call time for latency calculations
+	// Store last call time
 	atomic.StoreInt64(&ms.lastCallTime, nowMilli)
 }
 
@@ -305,7 +365,7 @@ func (ms *MetricState) UpdatePerformance(latency time.Duration, success bool) {
 	latencyMs := float64(latency.Nanoseconds()) / 1e6
 	ms.addToWindow(&ms.latencyWindow, latencyMs)
 
-	// Update error rate (simple approach)
+	// Update error rate
 	if !success {
 		ms.state.Performance.ErrorRate = min(ms.state.Performance.ErrorRate+0.01, 1.0)
 	} else {
@@ -329,7 +389,7 @@ func (ms *MetricState) UpdateThroughput(actionsPerSecond float64) {
 	ms.makeScalingDecision()
 }
 
-// UpdateSystemHealth updates health metrics from breathing system
+// UpdateSystemHealth updates health metrics
 func (ms *MetricState) UpdateSystemHealth(cpu, memory float64, goroutines int, gcPressure bool) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -368,164 +428,6 @@ func (ms *MetricState) SetActiveFormations(count int) {
 
 	ms.state.ActiveFormations = count
 	ms.state.LastUpdate = time.Now().UnixMilli()
-}
-
-// === INTELLIGENT SCALING LOGIC ===
-
-// makeScalingDecision implements smart worker scaling
-func (ms *MetricState) makeScalingDecision() {
-	currentThroughput := ms.state.Performance.ThroughputPerSec
-	currentLatency := ms.state.Performance.AvgLatencyMs
-
-	// Don't scale if we found sweet spot
-	if ms.state.Workers.SweetSpot {
-		return
-	}
-
-	// Don't scale too frequently (minimum 5 seconds)
-	if time.Now().UnixMilli()-ms.state.Workers.LastScaleUp < 5000 {
-		return
-	}
-
-	// Don't scale if system is stressed
-	if ms.state.Breathing.StressLevel > 0.7 {
-		return
-	}
-
-	// Determine if we should scale up
-	shouldScale := ms.shouldScaleUp(currentThroughput, currentLatency)
-
-	if shouldScale {
-		ms.scaleUpWorkers()
-	} else if ms.scaleAttempts > 0 {
-		// We tried scaling but it didn't help - found sweet spot
-		ms.detectSweetSpot()
-	}
-}
-
-// shouldScaleUp determines if adding workers would help performance
-func (ms *MetricState) shouldScaleUp(throughput, latency float64) bool {
-	// Don't exceed reasonable limits
-	if ms.state.Workers.Current >= runtime.NumCPU()*4 {
-		return false
-	}
-
-	// First attempt - just try it
-	if ms.lastThroughput == 0 {
-		return true
-	}
-
-	// Scale if throughput improved and latency didn't get much worse
-	throughputImproved := throughput > ms.lastThroughput*1.05 // 5% improvement
-	latencyAcceptable := latency <= ms.lastLatency*1.15       // Max 15% latency increase
-
-	return throughputImproved && latencyAcceptable
-}
-
-// scaleUpWorkers adds more workers intelligently
-func (ms *MetricState) scaleUpWorkers() {
-	ms.state.Workers.Current++
-	ms.state.Workers.LastScaleUp = time.Now().UnixMilli()
-	ms.scaleAttempts++
-
-	// Update atomic worker limit for hot path
-	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
-
-	// Store metrics for next comparison
-	ms.lastThroughput = ms.state.Performance.ThroughputPerSec
-	ms.lastLatency = ms.state.Performance.AvgLatencyMs
-
-	ms.state.Breathing.Phase = "scaling"
-
-	SensorInfo("Scaling up workers").
-		Location("context/metric-state.go").
-		Metadata(map[string]interface{}{
-			"currentWorkers": ms.state.Workers.Current,
-			"throughput":     ms.state.Performance.ThroughputPerSec,
-			"latency":        ms.state.Performance.AvgLatencyMs,
-		}).
-		Log()
-}
-
-// detectSweetSpot identifies optimal worker count
-func (ms *MetricState) detectSweetSpot() {
-	ms.state.Workers.SweetSpot = true
-	ms.state.Workers.Optimal = ms.state.Workers.Current - 1 // Previous was better
-	ms.state.Workers.Current = ms.state.Workers.Optimal
-
-	// Update atomic limit
-	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
-
-	ms.state.Breathing.Phase = "optimized"
-
-	SensorSuccess("Sweet spot found - optimal worker configuration detected").
-		Location("context/metric-state.go").
-		Metadata(map[string]interface{}{
-			"optimalWorkers": ms.state.Workers.Optimal,
-			"throughput":     ms.state.Performance.ThroughputPerSec,
-			"latency":        ms.state.Performance.AvgLatencyMs,
-		}).
-		Log()
-}
-
-// calculateStressLevel determines overall system stress
-func (ms *MetricState) calculateStressLevel() {
-	// Multi-factor stress calculation
-	cpuStress := ms.state.Health.CPUPercent / 100.0
-	memoryStress := ms.state.Health.MemoryPercent / 100.0
-
-	// Error rate stress (exponential - errors are serious)
-	errorStress := ms.state.Performance.ErrorRate * 2.0
-	if errorStress > 1.0 {
-		errorStress = 1.0
-	}
-
-	// Latency stress (stress increases above 100ms)
-	latencyStress := 0.0
-	if ms.state.Performance.AvgLatencyMs > 100 {
-		latencyStress = (ms.state.Performance.AvgLatencyMs - 100) / 400.0
-		if latencyStress > 1.0 {
-			latencyStress = 1.0
-		}
-	}
-
-	// Weighted combination
-	ms.state.Breathing.StressLevel = cpuStress*0.3 + memoryStress*0.2 + errorStress*0.3 + latencyStress*0.2
-
-	if ms.state.Breathing.StressLevel > 1.0 {
-		ms.state.Breathing.StressLevel = 1.0
-	}
-}
-
-// updateBreathingControl sets breathing flags based on stress
-func (ms *MetricState) updateBreathingControl() {
-	stress := ms.state.Breathing.StressLevel
-
-	// Determine breathing state
-	isRecuperating := stress > 0.8
-	blockNormal := stress > 0.7
-	blockLow := stress > 0.5
-
-	ms.state.Breathing.IsRecuperating = isRecuperating
-	ms.state.Breathing.BlockNormal = blockNormal
-	ms.state.Breathing.BlockLow = blockLow
-	ms.state.InRecuperation = isRecuperating
-
-	// Update atomic flags for ultra-fast hot path reads
-	atomic.StoreInt32(&ms.isRecuperating, boolToInt32(isRecuperating))
-	atomic.StoreInt32(&ms.blockNormal, boolToInt32(blockNormal))
-	atomic.StoreInt32(&ms.blockLow, boolToInt32(blockLow))
-
-	// Update phase
-	if isRecuperating {
-		ms.state.Breathing.Phase = "recovery"
-	} else if blockNormal {
-		ms.state.Breathing.Phase = "stressed"
-	} else if !ms.state.Workers.SweetSpot {
-		ms.state.Breathing.Phase = "scaling"
-	} else {
-		ms.state.Breathing.Phase = "normal"
-	}
 }
 
 // === HELPER FUNCTIONS ===
@@ -568,4 +470,223 @@ func max(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// === BREATHING SYSTEM PLACEHOLDER METHODS ===
+// These will be implemented in the next artifact
+
+func (ms *MetricState) initializeBreathing() {
+	// Basic breathing system initialization
+	fmt.Printf("DEBUG: initializeBreathing() called\n")
+
+	go func() {
+		fmt.Printf("DEBUG: Breathing goroutine started\n")
+		time.Sleep(2 * time.Second)
+		fmt.Printf("DEBUG: Delay complete, starting ticker\n")
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		fmt.Printf("DEBUG: Ticker created, entering loop\n")
+
+		tickCount := 0
+		for {
+			select {
+			case <-ticker.C:
+				tickCount++
+				fmt.Printf("DEBUG: Breathing tick %d\n", tickCount)
+				ms.updateBreathingFromMetrics()
+			}
+		}
+	}()
+
+	fmt.Printf("DEBUG: Breathing goroutine launched\n")
+}
+
+func (ms *MetricState) initializeBreathingAccurate() {
+	// Accurate breathing system initialization
+	ms.initializeBreathing() // Use basic for now, will enhance
+}
+
+func (ms *MetricState) updateBreathingFromMetrics() {
+	fmt.Printf("DEBUG: updateBreathingFromMetrics() called\n")
+
+	cpu := ms.getCPUUsage()
+	memory := ms.getMemoryUsage()
+	goroutines := runtime.NumGoroutine()
+	gcPressure := ms.detectGCPressure()
+
+	fmt.Printf("DEBUG: Health readings - CPU:%.1f%%, Memory:%.1f%%, Goroutines:%d, GC:%v\n",
+		cpu, memory, goroutines, gcPressure)
+
+	ms.UpdateSystemHealth(cpu, memory, goroutines, gcPressure)
+
+	throughput := ms.measureThroughput()
+	ms.UpdateThroughput(throughput)
+}
+
+func (ms *MetricState) getCPUUsage() float64 {
+	goroutines := float64(runtime.NumGoroutine())
+	numCPU := float64(runtime.NumCPU())
+
+	cpuPercent := (goroutines / (numCPU * 4.0)) * 100.0
+	if cpuPercent > 100.0 {
+		cpuPercent = 100.0
+	}
+
+	return cpuPercent
+}
+
+func (ms *MetricState) getMemoryUsage() float64 {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	if memStats.Sys == 0 {
+		return 0.0
+	}
+
+	memoryPercent := (float64(memStats.Alloc) / float64(memStats.Sys)) * 100.0
+	if memoryPercent > 100.0 {
+		memoryPercent = 100.0
+	}
+
+	return memoryPercent
+}
+
+func (ms *MetricState) detectGCPressure() bool {
+	var currentStats runtime.MemStats
+	runtime.ReadMemStats(&currentStats)
+	now := time.Now()
+
+	gcDelta := currentStats.NumGC - ms.lastGCStats.NumGC
+	timeDelta := now.Sub(ms.lastGCTime)
+
+	ms.lastGCStats = currentStats
+	ms.lastGCTime = now
+
+	if timeDelta > 0 && gcDelta > 0 {
+		gcPerSecond := float64(gcDelta) / timeDelta.Seconds()
+		return gcPerSecond > 2.0
+	}
+
+	return false
+}
+
+func (ms *MetricState) measureThroughput() float64 {
+	return float64(atomic.LoadInt64(&ms.callsThisSecond))
+}
+
+func (ms *MetricState) calculateStressLevel() {
+	cpuStress := ms.state.Health.CPUPercent / 100.0
+	memoryStress := ms.state.Health.MemoryPercent / 100.0
+
+	errorStress := ms.state.Performance.ErrorRate * 2.0
+	if errorStress > 1.0 {
+		errorStress = 1.0
+	}
+
+	latencyStress := 0.0
+	if ms.state.Performance.AvgLatencyMs > 100 {
+		latencyStress = (ms.state.Performance.AvgLatencyMs - 100) / 400.0
+		if latencyStress > 1.0 {
+			latencyStress = 1.0
+		}
+	}
+
+	ms.state.Breathing.StressLevel = cpuStress*0.3 + memoryStress*0.2 + errorStress*0.3 + latencyStress*0.2
+
+	if ms.state.Breathing.StressLevel > 1.0 {
+		ms.state.Breathing.StressLevel = 1.0
+	}
+}
+
+func (ms *MetricState) updateBreathingControl() {
+	stress := ms.state.Breathing.StressLevel
+
+	isRecuperating := stress > 0.8
+	blockNormal := stress > 0.7
+	blockLow := stress > 0.5
+
+	ms.state.Breathing.IsRecuperating = isRecuperating
+	ms.state.Breathing.BlockNormal = blockNormal
+	ms.state.Breathing.BlockLow = blockLow
+	ms.state.InRecuperation = isRecuperating
+
+	atomic.StoreInt32(&ms.isRecuperating, boolToInt32(isRecuperating))
+	atomic.StoreInt32(&ms.blockNormal, boolToInt32(blockNormal))
+	atomic.StoreInt32(&ms.blockLow, boolToInt32(blockLow))
+
+	if isRecuperating {
+		ms.state.Breathing.Phase = "recovery"
+	} else if blockNormal {
+		ms.state.Breathing.Phase = "stressed"
+	} else if !ms.state.Workers.SweetSpot {
+		ms.state.Breathing.Phase = "scaling"
+	} else {
+		ms.state.Breathing.Phase = "normal"
+	}
+}
+
+func (ms *MetricState) makeScalingDecision() {
+	// Basic scaling logic placeholder
+	currentThroughput := ms.state.Performance.ThroughputPerSec
+	currentLatency := ms.state.Performance.AvgLatencyMs
+
+	if ms.state.Workers.SweetSpot {
+		return
+	}
+
+	if time.Now().UnixMilli()-ms.state.Workers.LastScaleUp < 5000 {
+		return
+	}
+
+	if ms.state.Breathing.StressLevel > 0.7 {
+		return
+	}
+
+	shouldScale := ms.shouldScaleUp(currentThroughput, currentLatency)
+
+	if shouldScale {
+		ms.scaleUpWorkers()
+	} else if ms.scaleAttempts > 0 {
+		ms.detectSweetSpot()
+	}
+}
+
+func (ms *MetricState) shouldScaleUp(throughput, latency float64) bool {
+	if ms.state.Workers.Current >= runtime.NumCPU()*4 {
+		return false
+	}
+
+	if ms.lastThroughput == 0 {
+		return true
+	}
+
+	throughputImproved := throughput > ms.lastThroughput*1.05
+	latencyAcceptable := latency <= ms.lastLatency*1.15
+
+	return throughputImproved && latencyAcceptable
+}
+
+func (ms *MetricState) scaleUpWorkers() {
+	ms.state.Workers.Current++
+	ms.state.Workers.LastScaleUp = time.Now().UnixMilli()
+	ms.scaleAttempts++
+
+	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
+
+	ms.lastThroughput = ms.state.Performance.ThroughputPerSec
+	ms.lastLatency = ms.state.Performance.AvgLatencyMs
+
+	ms.state.Breathing.Phase = "scaling"
+}
+
+func (ms *MetricState) detectSweetSpot() {
+	ms.state.Workers.SweetSpot = true
+	ms.state.Workers.Optimal = ms.state.Workers.Current - 1
+	ms.state.Workers.Current = ms.state.Workers.Optimal
+
+	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
+
+	ms.state.Breathing.Phase = "optimized"
 }

@@ -76,14 +76,14 @@ const (
 	MaxWorkersRatio  = 2.5 // NumCPU * 2.5 for low stress
 
 	// Stress thresholds for worker control
-	WorkerStressHigh     = 0.8 // Reduce workers above this stress
 	WorkerStressCritical = 0.9 // Emergency mode above this stress
 
 	// === BREATHING SYSTEM ===
 
 	// Stress monitoring
-	StressThreshold   = 0.80 // Stress level to trigger breathing
-	CriticalThreshold = 0.95 // Critical stress level
+	StressThreshold   = 0.90 // Let it run hotter before throttling
+	WorkerStressHigh  = 0.85 // Allow more worker stress
+	CriticalThreshold = 0.95 // Keep emergency threshold
 	RecoveryThreshold = 0.30 // Stress level for recovery
 	HealthyThreshold  = 0.10 // Healthy operation threshold
 
