@@ -1,9 +1,13 @@
 // config/cyre-config.go
-// Enhanced configuration matching TypeScript Cyre with timing, messages, and default state
+// Enhanced configuration with MetricState and breathing system integration
+// Complete SystemState definition and intelligent defaults
 
 package config
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 /*
 	C.Y.R.E - C.O.N.F.I.G
@@ -13,8 +17,9 @@ import "time"
 	- Timing configurations (UI, animation, API)
 	- System messages (British AI Assistant style)
 	- Breathing system parameters
-	- Default system state initialization
-	- Complete TypeScript compatibility
+	- Worker management constants
+	- Complete SystemState definition for MetricState brain
+	- TypeScript compatibility
 */
 
 const (
@@ -49,7 +54,7 @@ const (
 	MaxInterval       = 1 * time.Hour        // Maximum interval duration
 	DefaultMaxRepeats = 1000000              // Default max repeat count
 
-	// === NEW: UI/ANIMATION TIMING (from TypeScript) ===
+	// === UI/ANIMATION TIMING (from TypeScript) ===
 
 	// UI and animation timing
 	AnimationTiming      = 16*time.Millisecond + 670*time.Microsecond // 16.67ms - 60fps
@@ -62,6 +67,17 @@ const (
 	RecuperationInterval = 60 * time.Second      // 1 minute - Recuperation check interval
 	LongInterval         = 60 * 60 * time.Second // 1 hour - Long timer handling
 	MaxTimeout           = 2147483647            // Max safe timeout value (2^31 - 1)
+
+	// === WORKER MANAGEMENT (Simplified) ===
+
+	// Base worker ratios (multiplied by NumCPU)
+	BaseWorkersRatio = 1.5 // NumCPU * 1.5 for normal operation
+	MinWorkersRatio  = 0.5 // NumCPU * 0.5 for high stress
+	MaxWorkersRatio  = 2.5 // NumCPU * 2.5 for low stress
+
+	// Stress thresholds for worker control
+	WorkerStressHigh     = 0.8 // Reduce workers above this stress
+	WorkerStressCritical = 0.9 // Emergency mode above this stress
 
 	// === BREATHING SYSTEM ===
 
@@ -83,7 +99,7 @@ const (
 	BreathingStressHigh     = 0.9  // High stress threshold
 	BreathingStressCritical = 0.95 // Critical stress threshold
 
-	// === PROTECTION SYSTEM (Enhanced from TypeScript) ===
+	// === PROTECTION SYSTEM ===
 
 	// Protection thresholds
 	CallThreshold    = 100  // Call threshold
@@ -121,6 +137,194 @@ const (
 	VerboseLogging  = false // Verbose logging in dev mode
 	EnableProfiling = false // Enable performance profiling
 )
+
+// === COMPLETE SYSTEMSTATE DEFINITION ===
+
+// SystemState represents the complete system state for MetricState brain
+type SystemState struct {
+	// === SYSTEM PERFORMANCE ===
+	Performance struct {
+		ThroughputPerSec float64 `json:"throughputPerSec"` // Actions completing per second
+		AvgLatencyMs     float64 `json:"avgLatencyMs"`     // Average response time
+		ErrorRate        float64 `json:"errorRate"`        // Failed actions ratio (0.0-1.0)
+		QueueDepth       int     `json:"queueDepth"`       // Pending work backlog
+
+		// Call tracking for rate limiting (like cyre.ts)
+		CallsTotal        int64 `json:"callsTotal"`        // Total calls since start
+		CallsPerSecond    int64 `json:"callsPerSecond"`    // Current call rate
+		LastCallTimestamp int64 `json:"lastCallTimestamp"` // Last call time for rate calculation
+	} `json:"performance"`
+
+	// === STORE COUNTS (App awareness) ===
+	Store struct {
+		Channels    int `json:"channels"`    // Registered channels/actions
+		Branches    int `json:"branches"`    // Workflow branches
+		Tasks       int `json:"tasks"`       // Scheduled tasks
+		Subscribers int `json:"subscribers"` // Active handlers
+		Timeline    int `json:"timeline"`    // Timeline entries
+	} `json:"store"`
+
+	// === WORKER MANAGEMENT ===
+	Workers struct {
+		Current     int   `json:"current"`     // Currently active workers
+		Optimal     int   `json:"optimal"`     // Discovered sweet spot
+		SweetSpot   bool  `json:"sweetSpot"`   // Have we found optimal count?
+		LastScaleUp int64 `json:"lastScaleUp"` // When we last added workers (timestamp)
+	} `json:"workers"`
+
+	// === SYSTEM HEALTH ===
+	Health struct {
+		CPUPercent     float64 `json:"cpuPercent"`     // CPU utilization (0-100)
+		MemoryPercent  float64 `json:"memoryPercent"`  // Memory utilization (0-100)
+		GoroutineCount int     `json:"goroutineCount"` // Active goroutines
+		GCPressure     bool    `json:"gcPressure"`     // High GC frequency detected
+	} `json:"health"`
+
+	// === BREATHING CONTROL ===
+	Breathing struct {
+		IsRecuperating bool    `json:"isRecuperating"` // System in recovery mode
+		StressLevel    float64 `json:"stressLevel"`    // Overall stress (0.0-1.0)
+		Phase          string  `json:"phase"`          // "normal", "scaling", "stressed", "recovery"
+		BlockNormal    bool    `json:"blockNormal"`    // Block normal priority actions
+		BlockLow       bool    `json:"blockLow"`       // Block low priority actions
+	} `json:"breathing"`
+
+	// === SIMPLE FLAGS (Quick checks) ===
+	LastUpdate       int64 `json:"lastUpdate"`       // Last state update timestamp
+	InRecuperation   bool  `json:"inRecuperation"`   // System recovering (breathing flag)
+	Hibernating      bool  `json:"hibernating"`      // System hibernation state
+	ActiveFormations int   `json:"activeFormations"` // Active scheduled formations
+	Locked           bool  `json:"locked"`           // System maintenance lock
+	Initialized      bool  `json:"initialized"`      // System ready state
+	Shutdown         bool  `json:"shutdown"`         // System shutdown state
+
+	// === LEGACY COMPATIBILITY (for existing code) ===
+	System struct {
+		CPU          float64 `json:"cpu"`
+		Memory       float64 `json:"memory"`
+		EventLoop    float64 `json:"eventLoop"`
+		IsOverloaded bool    `json:"isOverloaded"`
+	} `json:"system"`
+
+	Stress struct {
+		CPU       float64 `json:"cpu"`
+		Memory    float64 `json:"memory"`
+		EventLoop float64 `json:"eventLoop"`
+		CallRate  float64 `json:"callRate"`
+		Combined  float64 `json:"combined"`
+	} `json:"stress"`
+}
+
+// === DEFAULT SYSTEM STATE ===
+
+// DefaultSystemState provides intelligent initial state
+var DefaultSystemState = SystemState{
+	Performance: struct {
+		ThroughputPerSec  float64 `json:"throughputPerSec"`
+		AvgLatencyMs      float64 `json:"avgLatencyMs"`
+		ErrorRate         float64 `json:"errorRate"`
+		QueueDepth        int     `json:"queueDepth"`
+		CallsTotal        int64   `json:"callsTotal"`
+		CallsPerSecond    int64   `json:"callsPerSecond"`
+		LastCallTimestamp int64   `json:"lastCallTimestamp"`
+	}{
+		ThroughputPerSec:  0.0,
+		AvgLatencyMs:      0.0,
+		ErrorRate:         0.0,
+		QueueDepth:        0,
+		CallsTotal:        0,
+		CallsPerSecond:    0,
+		LastCallTimestamp: 0,
+	},
+
+	Store: struct {
+		Channels    int `json:"channels"`
+		Branches    int `json:"branches"`
+		Tasks       int `json:"tasks"`
+		Subscribers int `json:"subscribers"`
+		Timeline    int `json:"timeline"`
+	}{
+		Channels:    0,
+		Branches:    0,
+		Tasks:       0,
+		Subscribers: 0,
+		Timeline:    0,
+	},
+
+	Workers: struct {
+		Current     int   `json:"current"`
+		Optimal     int   `json:"optimal"`
+		SweetSpot   bool  `json:"sweetSpot"`
+		LastScaleUp int64 `json:"lastScaleUp"`
+	}{
+		Current:     runtime.NumCPU(), // Start with CPU cores
+		Optimal:     runtime.NumCPU(), // Initial optimal = CPU cores
+		SweetSpot:   false,            // Haven't found sweet spot yet
+		LastScaleUp: 0,                // Never scaled up yet
+	},
+
+	Health: struct {
+		CPUPercent     float64 `json:"cpuPercent"`
+		MemoryPercent  float64 `json:"memoryPercent"`
+		GoroutineCount int     `json:"goroutineCount"`
+		GCPressure     bool    `json:"gcPressure"`
+	}{
+		CPUPercent:     0.0,
+		MemoryPercent:  0.0,
+		GoroutineCount: runtime.NumGoroutine(),
+		GCPressure:     false,
+	},
+
+	Breathing: struct {
+		IsRecuperating bool    `json:"isRecuperating"`
+		StressLevel    float64 `json:"stressLevel"`
+		Phase          string  `json:"phase"`
+		BlockNormal    bool    `json:"blockNormal"`
+		BlockLow       bool    `json:"blockLow"`
+	}{
+		IsRecuperating: false,
+		StressLevel:    0.0,
+		Phase:          "normal",
+		BlockNormal:    false,
+		BlockLow:       false,
+	},
+
+	// Simple flags for quick checks
+	LastUpdate:       time.Now().UnixMilli(),
+	InRecuperation:   false, // Breathing system flag
+	Hibernating:      false, // System hibernation state
+	ActiveFormations: 0,     // Active scheduled formations
+	Locked:           false, // System maintenance lock
+	Initialized:      true,  // System ready state
+	Shutdown:         false, // System shutdown state
+
+	// Legacy compatibility fields
+	System: struct {
+		CPU          float64 `json:"cpu"`
+		Memory       float64 `json:"memory"`
+		EventLoop    float64 `json:"eventLoop"`
+		IsOverloaded bool    `json:"isOverloaded"`
+	}{
+		CPU:          0,
+		Memory:       0,
+		EventLoop:    0,
+		IsOverloaded: false,
+	},
+
+	Stress: struct {
+		CPU       float64 `json:"cpu"`
+		Memory    float64 `json:"memory"`
+		EventLoop float64 `json:"eventLoop"`
+		CallRate  float64 `json:"callRate"`
+		Combined  float64 `json:"combined"`
+	}{
+		CPU:       0,
+		Memory:    0,
+		EventLoop: 0,
+		CallRate:  0,
+		Combined:  0,
+	},
+}
 
 // === PAYLOAD CONFIGURATION ===
 
@@ -245,79 +449,6 @@ var MSG = map[string]string{
 	"QUANTUM_HEADER": "Q0.0U0.0A0.0N0.0T0.0U0.0M0 - I0.0N0.0C0.0E0.0P0.0T0.0I0.0O0.0N0.0S0-- ",
 }
 
-// === PROTECTION CONFIGURATION ===
-
-var PROTECTION = struct {
-	CallThreshold   int
-	MinDebounce     int
-	MinThrottle     int
-	MaxDelay        int
-	Window          int
-	InitialDelay    int
-	SystemLoadDelay int
-	System          struct {
-		CPU struct {
-			Warning  int
-			Critical int
-		}
-		Memory struct {
-			Warning  int
-			Critical int
-		}
-		EventLoop struct {
-			Warning  int
-			Critical int
-		}
-		OverloadThreshold int
-	}
-}{
-	CallThreshold:   CallThreshold,
-	MinDebounce:     MinDebounce,
-	MinThrottle:     MinThrottle,
-	MaxDelay:        MaxDelay,
-	Window:          ProtectionWindow,
-	InitialDelay:    InitialDelay,
-	SystemLoadDelay: SystemLoadDelay,
-	System: struct {
-		CPU struct {
-			Warning  int
-			Critical int
-		}
-		Memory struct {
-			Warning  int
-			Critical int
-		}
-		EventLoop struct {
-			Warning  int
-			Critical int
-		}
-		OverloadThreshold int
-	}{
-		CPU: struct {
-			Warning  int
-			Critical int
-		}{
-			Warning:  CPUWarning,
-			Critical: CPUCritical,
-		},
-		Memory: struct {
-			Warning  int
-			Critical int
-		}{
-			Warning:  MemoryWarning,
-			Critical: MemoryCritical,
-		},
-		EventLoop: struct {
-			Warning  int
-			Critical int
-		}{
-			Warning:  EventLoopWarning,
-			Critical: EventLoopCritical,
-		},
-		OverloadThreshold: OverloadThreshold,
-	},
-}
-
 // === BREATHING CONFIGURATION ===
 
 var BREATHING = struct {
@@ -435,168 +566,77 @@ var BREATHING = struct {
 	},
 }
 
-// === DEFAULT SYSTEM STATE (TypeScript defaultMetrics equivalent) ===
+// === PROTECTION CONFIGURATION ===
 
-// SystemState represents the complete system state
-type SystemState struct {
-	System struct {
-		CPU          float64 `json:"cpu"`
-		Memory       float64 `json:"memory"`
-		EventLoop    float64 `json:"eventLoop"`
-		IsOverloaded bool    `json:"isOverloaded"`
-	} `json:"system"`
-
-	Breathing struct {
-		BreathCount       int64         `json:"breathCount"`
-		CurrentRate       time.Duration `json:"currentRate"`
-		LastBreath        int64         `json:"lastBreath"`
-		Stress            float64       `json:"stress"`
-		IsRecuperating    bool          `json:"isRecuperating"`
-		RecuperationDepth int           `json:"recuperationDepth"`
-		Pattern           string        `json:"pattern"`
-		NextBreathDue     int64         `json:"nextBreathDue"`
-	} `json:"breathing"`
-
-	Performance struct {
-		CallsTotal        int64 `json:"callsTotal"`
-		CallsPerSecond    int64 `json:"callsPerSecond"`
-		LastCallTimestamp int64 `json:"lastCallTimestamp"`
-		ActiveQueues      struct {
-			Critical   int `json:"critical"`
-			High       int `json:"high"`
-			Medium     int `json:"medium"`
-			Low        int `json:"low"`
-			Background int `json:"background"`
-		} `json:"activeQueues"`
-		QueueDepth int `json:"queueDepth"`
-	} `json:"performance"`
-
-	Stress struct {
-		CPU       float64 `json:"cpu"`
-		Memory    float64 `json:"memory"`
-		EventLoop float64 `json:"eventLoop"`
-		CallRate  float64 `json:"callRate"`
-		Combined  float64 `json:"combined"`
-	} `json:"stress"`
-
-	Store struct {
-		Channels    int `json:"channels"`
-		Branches    int `json:"branches"`
-		Tasks       int `json:"tasks"`
-		Subscribers int `json:"subscribers"`
-		Timeline    int `json:"timeline"`
-	} `json:"store"`
-
-	LastUpdate       int64 `json:"lastUpdate"`
-	InRecuperation   bool  `json:"inRecuperation"`
-	Hibernating      bool  `json:"hibernating"`
-	ActiveFormations int   `json:"activeFormations"`
-	Locked           bool  `json:"_Locked"`
-	Init             bool  `json:"_init"`
-	Shutdown         bool  `json:"_shutdown"`
-}
-
-// DefaultSystemState provides initial state matching TypeScript defaultMetrics
-var DefaultSystemState = SystemState{
+var PROTECTION = struct {
+	CallThreshold   int
+	MinDebounce     int
+	MinThrottle     int
+	MaxDelay        int
+	Window          int
+	InitialDelay    int
+	SystemLoadDelay int
+	System          struct {
+		CPU struct {
+			Warning  int
+			Critical int
+		}
+		Memory struct {
+			Warning  int
+			Critical int
+		}
+		EventLoop struct {
+			Warning  int
+			Critical int
+		}
+		OverloadThreshold int
+	}
+}{
+	CallThreshold:   CallThreshold,
+	MinDebounce:     MinDebounce,
+	MinThrottle:     MinThrottle,
+	MaxDelay:        MaxDelay,
+	Window:          ProtectionWindow,
+	InitialDelay:    InitialDelay,
+	SystemLoadDelay: SystemLoadDelay,
 	System: struct {
-		CPU          float64 `json:"cpu"`
-		Memory       float64 `json:"memory"`
-		EventLoop    float64 `json:"eventLoop"`
-		IsOverloaded bool    `json:"isOverloaded"`
+		CPU struct {
+			Warning  int
+			Critical int
+		}
+		Memory struct {
+			Warning  int
+			Critical int
+		}
+		EventLoop struct {
+			Warning  int
+			Critical int
+		}
+		OverloadThreshold int
 	}{
-		CPU:          0,
-		Memory:       0,
-		EventLoop:    0,
-		IsOverloaded: false,
-	},
-
-	Breathing: struct {
-		BreathCount       int64         `json:"breathCount"`
-		CurrentRate       time.Duration `json:"currentRate"`
-		LastBreath        int64         `json:"lastBreath"`
-		Stress            float64       `json:"stress"`
-		IsRecuperating    bool          `json:"isRecuperating"`
-		RecuperationDepth int           `json:"recuperationDepth"`
-		Pattern           string        `json:"pattern"`
-		NextBreathDue     int64         `json:"nextBreathDue"`
-	}{
-		BreathCount:       0,
-		CurrentRate:       BreathingBaseRate,
-		LastBreath:        time.Now().UnixMilli(),
-		Stress:            0,
-		IsRecuperating:    false,
-		RecuperationDepth: 0,
-		Pattern:           "NORMAL",
-		NextBreathDue:     time.Now().UnixMilli() + int64(BreathingBaseRate.Milliseconds()),
-	},
-
-	Performance: struct {
-		CallsTotal        int64 `json:"callsTotal"`
-		CallsPerSecond    int64 `json:"callsPerSecond"`
-		LastCallTimestamp int64 `json:"lastCallTimestamp"`
-		ActiveQueues      struct {
-			Critical   int `json:"critical"`
-			High       int `json:"high"`
-			Medium     int `json:"medium"`
-			Low        int `json:"low"`
-			Background int `json:"background"`
-		} `json:"activeQueues"`
-		QueueDepth int `json:"queueDepth"`
-	}{
-		CallsTotal:        0,
-		CallsPerSecond:    0,
-		LastCallTimestamp: time.Now().UnixMilli(),
-		ActiveQueues: struct {
-			Critical   int `json:"critical"`
-			High       int `json:"high"`
-			Medium     int `json:"medium"`
-			Low        int `json:"low"`
-			Background int `json:"background"`
+		CPU: struct {
+			Warning  int
+			Critical int
 		}{
-			Critical:   0,
-			High:       0,
-			Medium:     0,
-			Low:        0,
-			Background: 0,
+			Warning:  CPUWarning,
+			Critical: CPUCritical,
 		},
-		QueueDepth: 0,
+		Memory: struct {
+			Warning  int
+			Critical int
+		}{
+			Warning:  MemoryWarning,
+			Critical: MemoryCritical,
+		},
+		EventLoop: struct {
+			Warning  int
+			Critical int
+		}{
+			Warning:  EventLoopWarning,
+			Critical: EventLoopCritical,
+		},
+		OverloadThreshold: OverloadThreshold,
 	},
-
-	Stress: struct {
-		CPU       float64 `json:"cpu"`
-		Memory    float64 `json:"memory"`
-		EventLoop float64 `json:"eventLoop"`
-		CallRate  float64 `json:"callRate"`
-		Combined  float64 `json:"combined"`
-	}{
-		CPU:       0,
-		Memory:    0,
-		EventLoop: 0,
-		CallRate:  0,
-		Combined:  0,
-	},
-
-	Store: struct {
-		Channels    int `json:"channels"`
-		Branches    int `json:"branches"`
-		Tasks       int `json:"tasks"`
-		Subscribers int `json:"subscribers"`
-		Timeline    int `json:"timeline"`
-	}{
-		Channels:    0,
-		Branches:    0,
-		Tasks:       0,
-		Subscribers: 0,
-		Timeline:    0,
-	},
-
-	LastUpdate:       time.Now().UnixMilli(),
-	InRecuperation:   false,
-	Hibernating:      false,
-	ActiveFormations: 0,
-	Locked:           false,
-	Init:             false,
-	Shutdown:         false,
 }
 
 // === HELPER FUNCTIONS ===
@@ -608,8 +648,6 @@ func GetMessage(key string) string {
 	}
 	return "Unknown system message"
 }
-
-// === EXISTING HELPER FUNCTIONS (unchanged) ===
 
 // Environment holds runtime environment information
 type Environment struct {
@@ -639,7 +677,7 @@ type PerformanceProfile struct {
 	BreathingEnabled bool
 }
 
-// Predefined performance profiles (unchanged)
+// Predefined performance profiles
 var (
 	HighThroughputProfile = PerformanceProfile{
 		Name:             "high-throughput",
@@ -754,4 +792,39 @@ func ValidateRepeat(repeat int) int {
 		return DefaultMaxRepeats
 	}
 	return repeat
+}
+
+// === WORKER CALCULATION HELPERS ===
+
+// GetOptimalWorkers calculates optimal worker count based on stress
+func GetOptimalWorkers(stressLevel float64) int {
+	numCPU := float64(runtime.NumCPU())
+
+	// Linear interpolation between min and max based on stress
+	// stress=0.0 → maxRatio, stress=1.0 → minRatio
+	workerRatio := MaxWorkersRatio - (stressLevel * (MaxWorkersRatio - MinWorkersRatio))
+	workerCount := int(numCPU * workerRatio)
+
+	// Apply bounds
+	minWorkers := int(numCPU * MinWorkersRatio)
+	maxWorkers := int(numCPU * MaxWorkersRatio)
+
+	if workerCount < minWorkers {
+		workerCount = minWorkers
+	}
+	if workerCount > maxWorkers {
+		workerCount = maxWorkers
+	}
+
+	return workerCount
+}
+
+// ShouldBlockNormalActions determines if normal actions should be blocked
+func ShouldBlockNormalActions(stressLevel float64) bool {
+	return stressLevel > WorkerStressHigh
+}
+
+// ShouldEnterEmergencyMode determines if system should enter emergency mode
+func ShouldEnterEmergencyMode(stressLevel float64) bool {
+	return stressLevel > WorkerStressCritical
 }
