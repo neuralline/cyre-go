@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("=========================================")
 
 	// Initialize Cyre
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		fmt.Printf("❌ Failed to initialize: %v\n", result.Error)
 		return

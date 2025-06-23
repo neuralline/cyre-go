@@ -1,5 +1,5 @@
-// core/cyre.go - Enhanced with MetricState integration
-// Updated Call() method and handler execution with intelligent system awareness
+// core/cyre.go - FIXED to use correct state API
+// Updated to use direct state package functions instead of StateManager methods
 
 package cyre
 
@@ -11,16 +11,16 @@ import (
 	"time"
 
 	"github.com/neuralline/cyre-go/config"
-	cyrecontext "github.com/neuralline/cyre-go/context"
 	"github.com/neuralline/cyre-go/schema"
+	"github.com/neuralline/cyre-go/state"
 	"github.com/neuralline/cyre-go/timekeeper"
 	"github.com/neuralline/cyre-go/types"
 )
 
 // Enhanced Cyre struct with MetricState integration
 type Cyre struct {
-	stateManager *cyrecontext.StateManager
-	metricState  *cyrecontext.MetricState // System brain integration
+	stateManager *state.StateManager
+	metricState  *state.MetricState // System brain integration
 	timeKeeper   *timekeeper.TimeKeeper
 
 	// Worker pool for concurrent execution
@@ -44,7 +44,6 @@ func Init(configParams ...map[string]interface{}) InitResult {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Initialize dependencies
-		stateManager := cyrecontext.Init()
 
 		// Check for accurate monitoring mode
 		useAccurateMonitoring := false
@@ -55,12 +54,15 @@ func Init(configParams ...map[string]interface{}) InitResult {
 		}
 
 		// Initialize MetricState with accurate monitoring
-		var metricState *cyrecontext.MetricState
+		var metricState *state.MetricState
 		if useAccurateMonitoring {
-			metricState = cyrecontext.InitializeMetricStateAccurate()
+			metricState = state.InitializeMetricStateAccurate()
 		} else {
-			metricState = cyrecontext.InitializeMetricState()
+			metricState = state.InitializeMetricState()
 		}
+
+		// Get the global state manager (don't create new one)
+		stateManager := state.GetStateManager()
 
 		timeKeeper := timekeeper.Init()
 
@@ -98,7 +100,7 @@ func Init(configParams ...map[string]interface{}) InitResult {
 		metricState.Init()
 
 		if useAccurateMonitoring {
-			cyrecontext.SensorSuccess("Cyre initialized with accurate system monitoring").
+			state.Success("Cyre initialized with accurate system monitoring").
 				Location("core/cyre.go").
 				Metadata(map[string]interface{}{
 					"workerPoolSize":     workerPoolSize,
@@ -137,8 +139,8 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 		return resultChan
 	}
 
-	// Get action configuration
-	ioConfig, exists := c.stateManager.IO().Get(actionID)
+	// FIXED: Use direct state.IO() function instead of c.stateManager.IO()
+	ioConfig, exists := state.IO().Get(actionID)
 	if !exists {
 		resultChan <- CallResult{
 			OK:      false,
@@ -172,12 +174,6 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	}
 
 	currentWorkers := c.workerPoolSize - len(c.workerPool)
-
-	// Debug worker state
-	// if currentWorkers == 0 {
-	// 	fmt.Printf("DEBUG: Worker pool exhausted - Current: %d, Max: %d, Pool size: %d\n",
-	// 		currentWorkers, maxWorkers, c.workerPoolSize)
-	// }
 
 	// ENHANCED: Try multiple strategies for worker allocation
 	select {
@@ -216,8 +212,8 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
 	start := time.Now()
 
-	// Get handler
-	subscriber, exists := c.stateManager.Subscribers().Get(actionID)
+	// FIXED: Use direct state.Subscribers() function instead of c.stateManager.Subscribers()
+	subscriber, exists := state.Subscribers().Get(actionID)
 	if !exists {
 		duration := time.Since(start)
 		if c.metricState != nil {
@@ -232,8 +228,8 @@ func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO,
 		return
 	}
 
-	// Update state with payload
-	c.stateManager.SetPayload(actionID, payload)
+	// FIXED: Use direct state.SetPayload() function instead of c.stateManager.SetPayload()
+	state.SetPayload(actionID, payload)
 
 	// Execute handler with panic recovery
 	var result interface{}
@@ -241,9 +237,9 @@ func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO,
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				cyrecontext.SensorError(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
+				state.Error(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
 					Location("core/cyre.go").
-					ActionID(actionID).
+					Id(actionID).
 					Log()
 			}
 		}()
@@ -264,7 +260,8 @@ func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO,
 		ioConfig.ExecutionCount++
 		ioConfig.LastExecTime = time.Now().UnixMilli()
 		ioConfig.ExecutionDuration = duration.Milliseconds()
-		c.stateManager.IO().Set(ioConfig)
+		// FIXED: Use direct state.IO().Set() instead of c.stateManager.IO().Set()
+		state.IO().Set(ioConfig.ID, ioConfig)
 	}
 
 	resultChan <- CallResult{
@@ -290,9 +287,9 @@ func (c *Cyre) Action(config types.IO) error {
 	// Check for compilation errors
 	if len(compileResult.Errors) > 0 {
 		for _, err := range compileResult.Errors {
-			cyrecontext.SensorError(fmt.Sprintf("Action compilation error for %s: %s", config.ID, err)).
+			state.Error(fmt.Sprintf("Action compilation error for %s: %s", config.ID, err)).
 				Location("core/cyre.go").
-				ActionID(config.ID).
+				Id(config.ID).
 				Log()
 		}
 		return fmt.Errorf("action compilation failed: %s", strings.Join(compileResult.Errors, "; "))
@@ -301,9 +298,9 @@ func (c *Cyre) Action(config types.IO) error {
 	// Log compilation warnings
 	if len(compileResult.Warnings) > 0 {
 		for _, warning := range compileResult.Warnings {
-			cyrecontext.SensorWarn(fmt.Sprintf("Action compilation warning for %s: %s", config.ID, warning)).
+			state.Warn(fmt.Sprintf("Action compilation warning for %s: %s", config.ID, warning)).
 				Location("core/cyre.go").
-				ActionID(config.ID).
+				Id(config.ID).
 				Log()
 		}
 	}
@@ -319,14 +316,11 @@ func (c *Cyre) Action(config types.IO) error {
 		compiledAction.TimeOfCreation = time.Now().UnixMilli()
 	}
 
-	// Store compiled action
-	err := c.stateManager.IO().Set(compiledAction)
+	// FIXED: Use direct state.ActionSet() function instead of c.stateManager.IO().Set()
+	err := state.ActionSet(compiledAction)
 	if err != nil {
 		return fmt.Errorf("failed to store compiled action: %w", err)
 	}
-
-	// Update store counts in MetricState
-	c.updateStoreCounts()
 
 	return nil
 }
@@ -355,24 +349,21 @@ func (c *Cyre) On(actionID string, handler HandlerFunc) SubscribeResult {
 	}
 
 	// Create subscriber
-	subscriber := &cyrecontext.Subscriber{
+	subscriber := &state.Subscriber{
 		ID:        actionID,
-		ActionID:  actionID,
-		Handler:   cyrecontext.HandlerFunc(handler),
+		ChannelID: actionID,
+		Handler:   state.HandlerFunc(handler),
 		CreatedAt: time.Now(),
 	}
 
-	// Store handler
-	err := c.stateManager.Subscribers().Add(subscriber)
+	// FIXED: Use direct state.SubscriberAdd() function instead of c.stateManager.Subscribers().Add()
+	err := state.SubscriberAdd(subscriber)
 	if err != nil {
 		return SubscribeResult{
 			OK:      false,
 			Message: config.MSG["SUBSCRIPTION_FAILED"],
 		}
 	}
-
-	// Update store counts in MetricState
-	c.updateStoreCounts()
 
 	return SubscribeResult{
 		OK:      true,
@@ -385,7 +376,8 @@ func (c *Cyre) Get(actionID string) (interface{}, bool) {
 	if !c.initialized {
 		return nil, false
 	}
-	return c.stateManager.GetPayload(actionID)
+	// FIXED: Use direct state.GetPayload() function instead of c.stateManager.GetPayload()
+	return state.GetPayload(actionID)
 }
 
 // Enhanced Forget method with store count tracking
@@ -399,11 +391,8 @@ func (c *Cyre) Forget(actionID string) bool {
 	c.timeKeeper.Forget(fmt.Sprintf("%s_interval", actionID))
 	c.timeKeeper.Forget(fmt.Sprintf("%s_delay", actionID))
 
-	// Remove from state
-	success := c.stateManager.ForgetAction(actionID)
-
-	// Update store counts in MetricState
-	c.updateStoreCounts()
+	// FIXED: Use direct state.ActionForget() function instead of c.stateManager.IO().Forget()
+	success := state.ActionForget(actionID)
 
 	return success
 }
@@ -413,7 +402,9 @@ func (c *Cyre) Reset() {
 	if !c.initialized {
 		return
 	}
-	c.stateManager.Reset()
+
+	// FIXED: Use direct state.Clear() function
+	state.Clear()
 }
 
 // Enhanced Shutdown with MetricState integration
@@ -432,26 +423,13 @@ func (c *Cyre) Shutdown() {
 	c.timeKeeper.Hibernate()
 
 	// Clear state
-	c.stateManager.Clear()
+	state.Clear()
 
 	// Cancel context
 	c.cancel()
 
 	// Mark as shutdown
 	c.initialized = false
-}
-
-// updateStoreCounts updates MetricState with current store counts
-func (c *Cyre) updateStoreCounts() {
-	stores := c.stateManager.GetStores()
-
-	channels := int(stores.IO.Count())
-	subscribers := int(stores.Subscribers.Count())
-	timeline := int(stores.Timeline.Count())
-	branches := int(stores.Branches.Count())
-	tasks := timeline // Use timeline as tasks for now
-
-	c.metricState.UpdateStoreCounts(channels, branches, tasks, subscribers, timeline)
 }
 
 // handleActionChain handles action chaining (IntraLinks) - unchanged

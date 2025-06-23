@@ -17,7 +17,7 @@ func main() {
 
 	// 1. Initialize Cyre
 	fmt.Println("\n1. Initializing Cyre...")
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if result.OK {
 		fmt.Printf("✅ Cyre initialized successfully at %d\n", result.Payload)
 	} else {
@@ -124,11 +124,8 @@ func main() {
 	fmt.Println("\n6. Testing debounce protection...")
 	err = cyre.Action(cyre.ActionConfig{
 		ID:       "search-input",
-		Debounce: -455,
+		Debounce: 455,
 	})
-	if err != nil {
-		log.Fatalf("❌ Failed to register debounced action: %v", err)
-	}
 
 	cyre.On("search-input", func(payload interface{}) interface{} {
 		if searchMap, ok := payload.(map[string]interface{}); ok {

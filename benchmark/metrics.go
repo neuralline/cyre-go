@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/neuralline/cyre-go/cyre"
+	"github.com/neuralline/cyre-go"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -19,13 +19,11 @@ func main() {
 	fmt.Println("====================================================")
 
 	// Initialize
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		log.Fatal("Failed to initialize:", result.Error)
 	}
 	fmt.Println("✅ Cyre initialized")
-
-	cyre := cyre.GetCyre()
 
 	// Test 1: Check initial state
 	fmt.Println("\n🧪 Test 1: Initial MetricState Check")

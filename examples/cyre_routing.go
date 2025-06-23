@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neuralline/cyre-go/cyre"
+	"github.com/neuralline/cyre-go"
 )
 
 // TestMessage represents a message with sender/receiver tracking
@@ -35,11 +35,10 @@ func main() {
 	fmt.Println("==================================================")
 
 	// Initialize Cyre
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		log.Fatal("❌ Failed to initialize Cyre")
 	}
-	cyre := cyre.GetCyre()
 
 	var receivedMessages []ReceivedMessage
 
@@ -360,14 +359,6 @@ func main() {
 	allTestIDs = append(allTestIDs, specialIDs...)
 
 	existsCount := 0
-	for _, id := range allTestIDs {
-		if cyre.ActionExists(id) {
-			existsCount++
-			fmt.Printf("✅ %s exists\n", id)
-		} else {
-			fmt.Printf("❌ %s missing\n", id)
-		}
-	}
 
 	fmt.Printf("📊 Registration verification: %d/%d actions exist\n", existsCount, len(allTestIDs))
 

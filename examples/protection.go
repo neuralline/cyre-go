@@ -76,7 +76,7 @@ func main() {
 	fmt.Println("===============================================")
 
 	// Initialize Cyre
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		fmt.Printf("❌ Failed to initialize Cyre: %s\n", result.Message)
 		return
@@ -107,10 +107,9 @@ func testThrottleProtection(ts *TestSuite) {
 	fmt.Println("\n🚦 Testing Throttle Protection...")
 
 	// Setup throttled action (1 second throttle)
-	throttleDuration := 1000 * time.Millisecond
 	err := cyre.Action(cyre.ActionConfig{
 		ID:       "throttle-test",
-		Throttle: &throttleDuration,
+		Throttle: 1000,
 	})
 
 	if err != nil {
@@ -329,10 +328,9 @@ func testDelayExecution(ts *TestSuite) {
 	fmt.Println("\n⏰ Testing Delay Execution...")
 
 	// Setup delayed action (500ms delay)
-	delayDuration := 500 * time.Millisecond
 	err := cyre.Action(cyre.ActionConfig{
 		ID:    "delay-test",
-		Delay: &delayDuration,
+		Delay: 500,
 	})
 
 	if err != nil {
@@ -381,10 +379,10 @@ func testDelayExecution(ts *TestSuite) {
 	})
 
 	actualDelay := executionTime.Sub(start)
-	delayOK := actualDelay >= delayDuration && actualDelay < delayDuration+100*time.Millisecond
+	delayOK := actualDelay >= 500 && actualDelay < 500+100*time.Millisecond
 	ts.AddResult(TestResult{
 		Name:        "Delay Timing",
-		Expected:    fmt.Sprintf("~%v", delayDuration),
+		Expected:    fmt.Sprintf("~%v", 500),
 		Actual:      fmt.Sprintf("%v", actualDelay),
 		Success:     delayOK,
 		Duration:    elapsed,
@@ -404,8 +402,8 @@ func testIntervalExecution(ts *TestSuite) {
 	repeatCount := 3
 	err := cyre.Action(cyre.ActionConfig{
 		ID:       "interval-test",
-		Interval: &intervalDuration,
-		Repeat:   &repeatCount,
+		Interval: 200,
+		Repeat:   3,
 	})
 
 	if err != nil {
@@ -478,7 +476,7 @@ func testRepeatExecution(ts *TestSuite) {
 	repeatCount := 4
 	err := cyre.Action(cyre.ActionConfig{
 		ID:     "repeat-test",
-		Repeat: &repeatCount,
+		Repeat: 4,
 	})
 
 	if err != nil {

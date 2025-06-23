@@ -1,7 +1,7 @@
-// context/metric-state.go - FIXED TYPE DEFINITIONS
+// state/metric-state.go - FIXED TYPE DEFINITIONS
 // Fix all MetricState definition and import issues
 
-package context
+package state
 
 import (
 	"fmt"
@@ -115,7 +115,7 @@ func InitializeMetricState() *MetricState {
 		atomic.StoreInt32(&globalMetricState.workerLimit, int32(runtime.NumCPU()))
 		atomic.StoreInt64(&globalMetricState.currentSecond, time.Now().Unix())
 
-		SensorSuccess("Metric State initialized successfully").
+		Critical("Metric State initialized successfully").
 			Location("context/metric-state.go").
 			Metadata(map[string]interface{}{
 				"initialWorkers": runtime.NumCPU(),
@@ -159,7 +159,7 @@ func InitializeMetricStateAccurate() *MetricState {
 		globalMetricState.state.Workers.Current = initialWorkers
 		globalMetricState.state.Workers.Optimal = initialWorkers
 
-		SensorSuccess("Accurate Metric State initialized successfully").
+		Critical("Accurate Metric State initialized successfully").
 			Location("context/metric-state.go").
 			Metadata(map[string]interface{}{
 				"initialWorkers": initialWorkers,
@@ -194,7 +194,7 @@ func (ms *MetricState) Lock() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	SensorCritical("System locked for maintenance").
+	Critical("System locked for maintenance").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -208,7 +208,7 @@ func (ms *MetricState) Unlock() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	SensorCritical("System unlocked - resuming operations").
+	Critical("System unlocked - resuming operations").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -220,7 +220,7 @@ func (ms *MetricState) Init() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	SensorCritical("System initialization completed").
+	Warn("System initialization completed").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -234,7 +234,7 @@ func (ms *MetricState) Shutdown() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	SensorCritical("System shutdown initiated").
+	Warn("System shutdown initiated").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -249,11 +249,11 @@ func (ms *MetricState) SetHibernating(hibernating bool) {
 	ms.mu.Unlock()
 
 	if hibernating {
-		SensorCritical("System entering hibernation mode").
+		Critical("System entering hibernation mode").
 			Location("context/metric-state.go").
 			Log()
 	} else {
-		SensorCritical("System exiting hibernation mode").
+		Critical("System exiting hibernation mode").
 			Location("context/metric-state.go").
 			Log()
 	}

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/neuralline/cyre-go/cyre"
+	"github.com/neuralline/cyre-go"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -22,13 +22,11 @@ func main() {
 	fmt.Printf("🔧 System Info: %d CPU cores, %d goroutines initially\n", runtime.NumCPU(), runtime.NumGoroutine())
 
 	// Initialize Cyre
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		log.Fatal("❌ Failed to initialize Cyre:", result.Error)
 	}
 	fmt.Printf("✅ Cyre initialized: %s\n", result.Message)
-
-	cyre := cyre.GetCyre()
 
 	// Register different types of actions to create varied load
 	actions := []struct {

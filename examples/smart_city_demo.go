@@ -96,7 +96,7 @@ func main() {
 	fmt.Println()
 
 	// Initialize Cyre and city manager
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		log.Fatal("❌ Failed to initialize Cyre")
 	}

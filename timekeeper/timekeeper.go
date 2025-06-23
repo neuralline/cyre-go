@@ -1,5 +1,5 @@
 // timekeeper/timekeeper.go
-// Simplified TimeKeeper with centralized quartz engine and timeline integration
+// Clean TimeKeeper with proper context and state package usage
 
 package timekeeper
 
@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	cyrecontext "github.com/neuralline/cyre-go/context"
+	"github.com/neuralline/cyre-go/state"
 )
 
 /*
@@ -18,7 +18,7 @@ import (
 
 	Simplified timing system providing:
 	- Centralized quartz timing engine
-	- Timeline store integration
+	- Direct state integration (no StateManager references)
 	- High-precision execution coordination
 	- Clean API: keep, wait, forget, clear, hibernate, activate
 	- Drift compensation for accuracy
@@ -44,9 +44,6 @@ type QuartzEngine struct {
 	// Drift compensation
 	driftTotal time.Duration
 
-	// Timeline integration
-	stateManager *cyrecontext.StateManager
-
 	// Execution coordination
 	executionGroups map[int64][]string // Grouped by interval for efficiency
 
@@ -59,10 +56,10 @@ type QuartzEngine struct {
 
 // TimeKeeper manages timing operations with centralized quartz engine
 type TimeKeeper struct {
-	quartz       *QuartzEngine
-	stateManager *cyrecontext.StateManager
-	hibernating  int32 // atomic
-	nextTimerID  int64 // atomic
+	quartz      *QuartzEngine
+	hibernating int32 // atomic
+	nextTimerID int64 // atomic
+	// NO stateManager field - use direct state access
 }
 
 // GlobalTimeKeeper is the singleton instance
@@ -72,13 +69,7 @@ var tkOnce sync.Once
 // Init creates and starts the global TimeKeeper
 func Init() *TimeKeeper {
 	tkOnce.Do(func() {
-		stateManager := cyrecontext.GetState()
-
-		GlobalTimeKeeper = &TimeKeeper{
-			stateManager: stateManager,
-		}
-
-		// Initialize quartz engine
+		GlobalTimeKeeper = &TimeKeeper{}
 		GlobalTimeKeeper.initQuartz()
 	})
 	return GlobalTimeKeeper
@@ -100,7 +91,6 @@ func (tk *TimeKeeper) initQuartz() {
 
 	tk.quartz = &QuartzEngine{
 		tickInterval:    10 * time.Millisecond, // 10ms precision like TypeScript
-		stateManager:    tk.stateManager,
 		executionGroups: make(map[int64][]string),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -163,15 +153,22 @@ func (tk *TimeKeeper) processTick(tickTime time.Time) {
 
 	currentTime := time.Now()
 
-	// Get active timers from timeline store
-	activeTimers := tk.stateManager.Timeline().GetActive()
+	// Get active timers using direct Timeline store access
+	allTimers := state.Timeline().GetAll()
+	var activeTimers []*state.Timer
+	for _, timer := range allTimers {
+		if timer.Status == "active" {
+			activeTimers = append(activeTimers, timer)
+		}
+	}
+
 	if len(activeTimers) == 0 {
 		tk.stopQuartz() // No active timers, stop quartz
 		return
 	}
 
 	// Process due timers
-	var toExecute []*cyrecontext.Timer
+	var toExecute []*state.Timer
 	for _, timer := range activeTimers {
 		if timer.Status == "active" && currentTime.After(timer.NextExecution) {
 			toExecute = append(toExecute, timer)
@@ -185,7 +182,7 @@ func (tk *TimeKeeper) processTick(tickTime time.Time) {
 }
 
 // executeTimer executes a timer and handles scheduling
-func (tk *TimeKeeper) executeTimer(timer *cyrecontext.Timer, executionTime time.Time) {
+func (tk *TimeKeeper) executeTimer(timer *state.Timer, executionTime time.Time) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Handle panic gracefully - simple logging
@@ -209,15 +206,15 @@ func (tk *TimeKeeper) executeTimer(timer *cyrecontext.Timer, executionTime time.
 		// Schedule next execution
 		tk.scheduleNext(timer, executionTime)
 	} else {
-		// Timer completed, remove from timeline
+		// Timer completed, remove from timeline using direct store access
 		timer.Status = "completed"
-		tk.stateManager.Timeline().Forget(timer.ID)
+		state.Timeline().Forget(timer.ID)
 		tk.removeFromExecutionGroups(timer)
 	}
 }
 
 // shouldContinueTimer determines if a timer should continue executing
-func (tk *TimeKeeper) shouldContinueTimer(timer *cyrecontext.Timer) bool {
+func (tk *TimeKeeper) shouldContinueTimer(timer *state.Timer) bool {
 	if timer.Repeat == -1 {
 		return true // Infinite repeat
 	}
@@ -228,20 +225,20 @@ func (tk *TimeKeeper) shouldContinueTimer(timer *cyrecontext.Timer) bool {
 }
 
 // scheduleNext schedules the next execution of a timer
-func (tk *TimeKeeper) scheduleNext(timer *cyrecontext.Timer, currentTime time.Time) {
+func (tk *TimeKeeper) scheduleNext(timer *state.Timer, currentTime time.Time) {
 	// Calculate next execution time
 	nextTime := currentTime.Add(timer.Interval)
 	timer.NextExecution = nextTime
 
-	// Update timer in timeline store
-	tk.stateManager.Timeline().Add(timer)
+	// Update timer using direct store access
+	state.Timeline().Set(timer.ID, timer)
 
 	// Update execution groups
 	tk.addToExecutionGroups(timer)
 }
 
 // addToExecutionGroups adds timer to execution groups for efficiency
-func (tk *TimeKeeper) addToExecutionGroups(timer *cyrecontext.Timer) {
+func (tk *TimeKeeper) addToExecutionGroups(timer *state.Timer) {
 	tk.quartz.mu.Lock()
 	defer tk.quartz.mu.Unlock()
 
@@ -251,7 +248,7 @@ func (tk *TimeKeeper) addToExecutionGroups(timer *cyrecontext.Timer) {
 }
 
 // removeFromExecutionGroups removes timer from execution groups
-func (tk *TimeKeeper) removeFromExecutionGroups(timer *cyrecontext.Timer) {
+func (tk *TimeKeeper) removeFromExecutionGroups(timer *state.Timer) {
 	tk.quartz.mu.Lock()
 	defer tk.quartz.mu.Unlock()
 
@@ -315,7 +312,7 @@ func (tk *TimeKeeper) Keep(interval time.Duration, callback func(), repeat Timer
 		nextExecution = now.Add(interval)
 	}
 
-	timer := &cyrecontext.Timer{
+	timer := &state.Timer{
 		ID:            id,
 		ActionID:      id,
 		Type:          "timer",
@@ -332,11 +329,8 @@ func (tk *TimeKeeper) Keep(interval time.Duration, callback func(), repeat Timer
 		Payload: nil,
 	}
 
-	// Add to timeline store
-	err := tk.stateManager.Timeline().Add(timer)
-	if err != nil {
-		return fmt.Errorf("failed to add timer to timeline: %w", err)
-	}
+	// Add to timeline using direct store access
+	state.Timeline().Set(timer.ID, timer)
 
 	// Add to execution groups
 	tk.addToExecutionGroups(timer)
@@ -360,8 +354,8 @@ func (tk *TimeKeeper) Wait(duration time.Duration, callback func()) error {
 
 // Forget removes a timer by ID
 func (tk *TimeKeeper) Forget(id string) bool {
-	// Get timer from timeline
-	timer, exists := tk.stateManager.Timeline().Get(id)
+	// Get timer from direct store access
+	timer, exists := state.Timeline().Get(id)
 	if !exists {
 		return false
 	}
@@ -369,11 +363,18 @@ func (tk *TimeKeeper) Forget(id string) bool {
 	// Remove from execution groups
 	tk.removeFromExecutionGroups(timer)
 
-	// Remove from timeline store
-	success := tk.stateManager.Timeline().Forget(id)
+	// Remove using direct store access
+	success := state.Timeline().Forget(id)
 
 	// Stop quartz if no active timers
-	if len(tk.stateManager.Timeline().GetActive()) == 0 {
+	allTimers := state.Timeline().GetAll()
+	activeCount := 0
+	for _, t := range allTimers {
+		if t.Status == "active" {
+			activeCount++
+		}
+	}
+	if activeCount == 0 {
 		tk.stopQuartz()
 	}
 
@@ -390,8 +391,8 @@ func (tk *TimeKeeper) Clear() {
 	tk.quartz.executionGroups = make(map[int64][]string)
 	tk.quartz.mu.Unlock()
 
-	// Clear timeline store
-	tk.stateManager.Timeline().Clear()
+	// Clear timeline using direct store access
+	state.Timeline().Clear()
 }
 
 // Hibernate pauses all timer processing
@@ -402,7 +403,7 @@ func (tk *TimeKeeper) Hibernate() {
 
 // Activate controls timer activation state
 func (tk *TimeKeeper) Activate(id string, active bool) bool {
-	timer, exists := tk.stateManager.Timeline().Get(id)
+	timer, exists := state.Timeline().Get(id)
 	if !exists {
 		return false
 	}
@@ -425,8 +426,8 @@ func (tk *TimeKeeper) Activate(id string, active bool) bool {
 		tk.removeFromExecutionGroups(timer)
 	}
 
-	// Update timer in timeline
-	tk.stateManager.Timeline().Add(timer)
+	// Update timer using direct store access
+	state.Timeline().Set(timer.ID, timer)
 
 	return true
 }
@@ -435,15 +436,20 @@ func (tk *TimeKeeper) Activate(id string, active bool) bool {
 
 // GetStats returns simplified timing statistics
 func (tk *TimeKeeper) GetStats() map[string]interface{} {
-	activeTimers := tk.stateManager.Timeline().GetActive()
-	allTimers := tk.stateManager.Timeline().GetAll()
+	allTimers := state.Timeline().GetAll()
+	activeCount := 0
+	for _, timer := range allTimers {
+		if timer.Status == "active" {
+			activeCount++
+		}
+	}
 
 	tk.quartz.mu.RLock()
 	groupCount := len(tk.quartz.executionGroups)
 	tk.quartz.mu.RUnlock()
 
 	return map[string]interface{}{
-		"activeTimers":    len(activeTimers),
+		"activeTimers":    activeCount,
 		"totalTimers":     len(allTimers),
 		"quartzRunning":   atomic.LoadInt32(&tk.quartz.isRunning) == 1,
 		"hibernating":     atomic.LoadInt32(&tk.hibernating) == 1,

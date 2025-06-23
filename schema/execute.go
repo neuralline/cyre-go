@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	cyrecontext "github.com/neuralline/cyre-go/context"
+	"github.com/neuralline/cyre-go/state"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -33,7 +33,7 @@ type ExecutionResult struct {
 // === MAIN PIPELINE EXECUTION FUNCTION ===
 
 // ExecutePipeline executes the operator pipeline defined in action._pipeline
-func ExecutePipeline(actionID string, payload interface{}, action *types.IO, sm *cyrecontext.StateManager) ExecutionResult {
+func ExecutePipeline(actionID string, payload interface{}, action *types.IO, sm *state.StateManager) ExecutionResult {
 	startTime := time.Now()
 
 	// Fast path: no pipeline defined
@@ -72,7 +72,7 @@ func ExecutePipeline(actionID string, payload interface{}, action *types.IO, sm 
 }
 
 // executePipelineSteps executes each operator in the pipeline sequence
-func executePipelineSteps(actionID string, payload interface{}, action *types.IO, sm *cyrecontext.StateManager, pipeline []string, startTime time.Time) ExecutionResult {
+func executePipelineSteps(actionID string, payload interface{}, action *types.IO, sm *state.StateManager, pipeline []string, startTime time.Time) ExecutionResult {
 	currentPayload := payload
 	executedOps := []string{}
 	transformations := 0
@@ -86,9 +86,9 @@ func executePipelineSteps(actionID string, payload interface{}, action *types.IO
 		operator, exists := GetOperator(operatorName)
 		if !exists {
 			// Log warning for unknown operator but continue
-			cyrecontext.SensorWarn(fmt.Sprintf("Unknown operator '%s' in pipeline for action %s", operatorName, actionID)).
+			state.Warn(fmt.Sprintf("Unknown operator '%s' in pipeline for action %s", operatorName, actionID)).
 				Location("schema/execute.go").
-				ActionID(actionID).
+				Id(actionID).
 				Metadata(map[string]interface{}{
 					"operator":     operatorName,
 					"pipelineStep": i + 1,
@@ -132,9 +132,9 @@ func executePipelineSteps(actionID string, payload interface{}, action *types.IO
 			schedulingInfo["delaySource"] = operatorName
 			schedulingInfo["delayDuration"] = result.Delay.Milliseconds()
 
-			cyrecontext.SensorInfo(fmt.Sprintf("Operator '%s' detected %v delay for action %s", operatorName, *result.Delay, actionID)).
+			state.Info(fmt.Sprintf("Operator '%s' detected %v delay for action %s", operatorName, *result.Delay, actionID)).
 				Location("schema/execute.go").
-				ActionID(actionID).
+				Id(actionID).
 				Metadata(map[string]interface{}{
 					"operator": operatorName,
 					"delay":    result.Delay.Milliseconds(),

@@ -1,8 +1,8 @@
-// context/sensor.go
+// state/sensor.go
 // Cyre Go Sensor - TypeScript-style API for terminal logging
 // Matches Cyre TypeScript sensor.error() pattern
 
-package context
+package state
 
 import (
 	"fmt"
@@ -88,21 +88,6 @@ func (l LogLevel) ColorStyle() string {
 	}
 }
 
-func (l LogLevel) AdditionalStyle() string {
-	switch l {
-	case DEBUG:
-		return Cyan
-	case INFO, WARN, ERROR, SUCCESS:
-		return Bold
-	case CRITICAL:
-		return WhiteBright
-	case SYS:
-		return White
-	default:
-		return ""
-	}
-}
-
 // === SENSOR ENTRY ===
 
 type SensorEntry struct {
@@ -137,7 +122,7 @@ func (b *SensorBuilder) Location(location string) *SensorBuilder {
 	return b
 }
 
-func (b *SensorBuilder) ActionID(actionID string) *SensorBuilder {
+func (b *SensorBuilder) Id(actionID string) *SensorBuilder {
 	b.entry.ActionID = actionID
 	return b
 }
@@ -255,43 +240,6 @@ func GetSensor() *struct {
 	return &sensor
 }
 
-// === DIRECT USAGE (alternative) ===
-
-// SensorCritical - direct function call
-func SensorCritical(message string) *SensorBuilder {
-	return Critical(message)
-}
-
-// SensorError - direct function call
-func SensorError(message string) *SensorBuilder {
-	return Error(message)
-}
-
-// SensorWarn - direct function call
-func SensorWarn(message string) *SensorBuilder {
-	return Warn(message)
-}
-
-// SensorInfo - direct function call
-func SensorInfo(message string) *SensorBuilder {
-	return Info(message)
-}
-
-// SensorSuccess - direct function call
-func SensorSuccess(message string) *SensorBuilder {
-	return Success(message)
-}
-
-// SensorDebug - direct function call
-func SensorDebug(message string) *SensorBuilder {
-	return Debug(message)
-}
-
-// SensorSys - direct function call
-func SensorSys(message string) *SensorBuilder {
-	return Sys(message)
-}
-
 // === INTERNAL IMPLEMENTATION ===
 
 func (s *Sensor) writeEntry(entry SensorEntry) {
@@ -313,12 +261,10 @@ func (s *Sensor) writeEntry(entry SensorEntry) {
 func (s *Sensor) writeToTerminal(entry SensorEntry) {
 	timestamp := formatTimestamp(entry.Timestamp)
 	colorStyle := entry.Level.ColorStyle()
-	additionalStyle := entry.Level.AdditionalStyle()
 
 	// Build log line: [timestamp] LEVEL: message
 	var logLine strings.Builder
 	logLine.WriteString(colorStyle)
-	logLine.WriteString(additionalStyle)
 	logLine.WriteString(fmt.Sprintf("[%s] %s: %s", timestamp, entry.Level, entry.Message))
 
 	// Add optional enrichment in priority order: location, actionId, eventType, metadata
@@ -364,16 +310,4 @@ func formatMetadata(metadata map[string]interface{}) string {
 
 func isDebugMode() bool {
 	return os.Getenv("CYRE_DEBUG") == "true" || os.Getenv("DEBUG") == "true"
-}
-
-// === CONFIGURATION ===
-
-// SetSensorEnabled enables or disables sensor logging globally
-func SetSensorEnabled(enabled bool) {
-	defaultSensor.enabled = enabled
-}
-
-// IsSensorEnabled returns whether sensor logging is currently enabled
-func IsSensorEnabled() bool {
-	return defaultSensor.enabled
 }

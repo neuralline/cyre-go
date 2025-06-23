@@ -54,16 +54,16 @@ type Metadata = cyre.Metadata
 
 // === ESSENTIAL API FUNCTIONS ONLY ===
 
-// Initialize creates and initializes the Cyre system
+// Init creates and initializes the Cyre system
 // Returns: InitResult with timestamp and success status
 //
 // Example:
 //
-//	result := cyre.Initialize()
+//	result := cyre.Init()
 //	if result.OK {
 //	    fmt.Println("Cyre initialized successfully")
 //	}
-func Initialize(config ...map[string]interface{}) InitResult {
+func Init(config ...map[string]interface{}) InitResult {
 	return cyre.Init(config...)
 }
 

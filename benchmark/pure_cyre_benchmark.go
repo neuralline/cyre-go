@@ -24,7 +24,7 @@ func main() {
 	fmt.Println()
 
 	// Initialize Cyre with accurate monitoring enabled
-	result := cyre.Initialize(map[string]interface{}{
+	result := cyre.Init(map[string]interface{}{
 		"accurateMonitoring": true,
 		"workerPoolSize":     200, // Double the worker pool for better concurrency
 	})
@@ -76,13 +76,13 @@ func initializeWithAccurateMonitoring() {
 
 	var result cyre.InitResult
 	if useAccurate {
-		result = cyre.Initialize(map[string]interface{}{
+		result = cyre.Init(map[string]interface{}{
 			"accurateMonitoring": true,
 			"workerPoolSize":     200,
 		})
 		fmt.Println("✅ Cyre initialized with accurate monitoring (env var)")
 	} else {
-		result = cyre.Initialize()
+		result = cyre.Init()
 		fmt.Println("✅ Cyre initialized with standard monitoring")
 	}
 

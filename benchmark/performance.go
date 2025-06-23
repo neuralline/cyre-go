@@ -383,7 +383,7 @@ func main() {
 	fmt.Println()
 
 	// Initialize Cyre
-	result := cyre.Initialize()
+	result := cyre.Init()
 	if !result.OK {
 		log.Fatal("Failed to initialize Cyre")
 	}
