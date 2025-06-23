@@ -1,7 +1,7 @@
 // core/cyre.go - Enhanced with MetricState integration
 // Updated Call() method and handler execution with intelligent system awareness
 
-package core
+package cyre
 
 import (
 	"context"
@@ -37,14 +37,14 @@ type Cyre struct {
 	cancel context.CancelFunc
 }
 
-func Initialize(configParams ...map[string]interface{}) InitResult {
+func Init(configParams ...map[string]interface{}) InitResult {
 	startTime := time.Now()
 
 	cyreOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Initialize dependencies
-		stateManager := cyrecontext.Initialize()
+		stateManager := cyrecontext.Init()
 
 		// Check for accurate monitoring mode
 		useAccurateMonitoring := false
@@ -62,7 +62,7 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 			metricState = cyrecontext.InitializeMetricState()
 		}
 
-		timeKeeper := timekeeper.Initialize()
+		timeKeeper := timekeeper.Init()
 
 		// Create worker pool - larger if using accurate monitoring
 		workerPoolSize := config.WorkerPoolSize
@@ -118,7 +118,7 @@ func Initialize(configParams ...map[string]interface{}) InitResult {
 // GetCyre returns the global Cyre instance
 func GetCyre() *Cyre {
 	if GlobalCyre == nil {
-		Initialize()
+		Init()
 	}
 	return GlobalCyre
 }
@@ -126,11 +126,6 @@ func GetCyre() *Cyre {
 // Call method with enhanced worker scaling based on accurate metrics
 func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
-
-	// Track call metrics for breathing system
-	if c.metricState != nil {
-		c.metricState.UpdateCallMetrics()
-	}
 
 	// Basic system check
 	if !c.initialized {
@@ -193,7 +188,7 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 				c.workerPool <- struct{}{} // Return worker
 				close(resultChan)
 			}()
-			c.executeHandler(actionID, payload, ioConfig, resultChan)
+			c.handler(actionID, payload, ioConfig, resultChan)
 		}()
 
 	case <-time.After(5 * time.Millisecond): // Increased timeout from 1ms to 5ms
@@ -202,7 +197,7 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 			// Execute without pool constraint if under intelligent limit
 			go func() {
 				defer close(resultChan)
-				c.executeHandler(actionID, payload, ioConfig, resultChan)
+				c.handler(actionID, payload, ioConfig, resultChan)
 			}()
 		} else {
 			// At intelligent capacity - reject
@@ -217,8 +212,8 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	return resultChan
 }
 
-// executeHandler with enhanced performance tracking
-func (c *Cyre) executeHandler(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
+// handler with enhanced performance tracking
+func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
 	start := time.Now()
 
 	// Get handler
@@ -242,12 +237,10 @@ func (c *Cyre) executeHandler(actionID string, payload interface{}, ioConfig *ty
 
 	// Execute handler with panic recovery
 	var result interface{}
-	var execError error
 
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				execError = fmt.Errorf("handler panic: %v", r)
 				cyrecontext.SensorError(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
 					Location("core/cyre.go").
 					ActionID(actionID).
@@ -259,25 +252,6 @@ func (c *Cyre) executeHandler(actionID string, payload interface{}, ioConfig *ty
 	}()
 
 	duration := time.Since(start)
-	success := execError == nil
-
-	// Update MetricState with performance data
-	if c.metricState != nil {
-		c.metricState.UpdatePerformance(duration, success)
-	}
-
-	// Update traditional metrics
-	c.stateManager.UpdateMetrics(actionID, "execution", duration)
-
-	if execError != nil {
-		c.stateManager.UpdateMetrics(actionID, "error", 0)
-		resultChan <- CallResult{
-			OK:      false,
-			Message: config.MSG["ACTION_EXECUTE_FAILED"],
-			Error:   execError,
-		}
-		return
-	}
 
 	// Handle action chaining (IntraLinks)
 	if chainResult, isChain := c.handleActionChain(result); isChain {
@@ -523,24 +497,4 @@ func (c *Cyre) GetMetrics() map[string]interface{} {
 			"isShutdown":     c.metricState.IsShutdown(),
 		},
 	}
-}
-
-// GetSystemState returns current system state from MetricState
-func (c *Cyre) GetSystemState() map[string]interface{} {
-	if !c.initialized || c.metricState == nil {
-		return map[string]interface{}{"error": "system not initialized"}
-	}
-
-	return map[string]interface{}{
-		"state": c.metricState.Get(),
-	}
-}
-
-// ActionExists checks if an action is registered
-func (c *Cyre) ActionExists(actionID string) bool {
-	if !c.initialized {
-		return false
-	}
-	_, exists := c.stateManager.IO().Get(actionID)
-	return exists
 }

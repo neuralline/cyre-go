@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neuralline/cyre-go/core"
+	"github.com/neuralline/cyre-go/cyre"
 )
 
 // TestMessage represents a message with sender/receiver tracking
@@ -35,11 +35,11 @@ func main() {
 	fmt.Println("==================================================")
 
 	// Initialize Cyre
-	result := core.Initialize()
+	result := cyre.Initialize()
 	if !result.OK {
 		log.Fatal("❌ Failed to initialize Cyre")
 	}
-	cyre := core.GetCyre()
+	cyre := cyre.GetCyre()
 
 	var receivedMessages []ReceivedMessage
 
@@ -77,7 +77,7 @@ func main() {
 	// Register all test actions
 	fmt.Println("Registering actions with various naming conventions...")
 	for _, actionID := range actionIDs {
-		err := cyre.Action(core.ActionConfig{
+		err := cyre.Action(cyre.ActionConfig{
 			ID:   actionID,
 			Type: "routing-test",
 			Log:  false, // Reduce noise
@@ -267,9 +267,9 @@ func main() {
 	fmt.Println("\n7. Testing Case Sensitivity...")
 
 	// Register both versions
-	cyre.Action(core.ActionConfig{ID: "testservice", Type: "case-test"})
-	cyre.Action(core.ActionConfig{ID: "TestService", Type: "case-test"})
-	cyre.Action(core.ActionConfig{ID: "TESTSERVICE", Type: "case-test"})
+	cyre.Action(cyre.ActionConfig{ID: "testservice", Type: "case-test"})
+	cyre.Action(cyre.ActionConfig{ID: "TestService", Type: "case-test"})
+	cyre.Action(cyre.ActionConfig{ID: "TESTSERVICE", Type: "case-test"})
 
 	cyre.On("testservice", func(payload interface{}) interface{} {
 		fmt.Println("📥 Received by 'testservice' (lowercase)")
@@ -310,7 +310,7 @@ func main() {
 	}
 
 	for _, specialID := range specialIDs {
-		err := cyre.Action(core.ActionConfig{ID: specialID, Type: "special-char-test"})
+		err := cyre.Action(cyre.ActionConfig{ID: specialID, Type: "special-char-test"})
 		if err != nil {
 			fmt.Printf("❌ Failed to register '%s': %v\n", specialID, err)
 			continue

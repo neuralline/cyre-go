@@ -5,7 +5,7 @@
 package cyre
 
 import (
-	"github.com/neuralline/cyre-go/core"
+	cyre "github.com/neuralline/cyre-go/core"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -35,22 +35,22 @@ type ActionConfig = types.IO
 type IO = types.IO
 
 // HandlerFunc represents an action handler function
-type HandlerFunc = core.HandlerFunc
+type HandlerFunc = cyre.HandlerFunc
 
 // CallResult represents the result of a call operation
-type CallResult = core.CallResult
+type CallResult = cyre.CallResult
 
 // InitResult represents initialization result
-type InitResult = core.InitResult
+type InitResult = cyre.InitResult
 
 // SubscribeResult represents subscription result
-type SubscribeResult = core.SubscribeResult
+type SubscribeResult = cyre.SubscribeResult
 
 // CyreResponse represents TypeScript-compatible response
-type CyreResponse = core.CyreResponse
+type CyreResponse = cyre.CyreResponse
 
 // Metadata represents response metadata
-type Metadata = core.Metadata
+type Metadata = cyre.Metadata
 
 // === ESSENTIAL API FUNCTIONS ONLY ===
 
@@ -64,7 +64,7 @@ type Metadata = core.Metadata
 //	    fmt.Println("Cyre initialized successfully")
 //	}
 func Initialize(config ...map[string]interface{}) InitResult {
-	return core.Initialize(config...)
+	return cyre.Init(config...)
 }
 
 // Action registers an action with the system
@@ -79,7 +79,7 @@ func Initialize(config ...map[string]interface{}) InitResult {
 //	    DetectChanges: true,
 //	})
 func Action(config ActionConfig) error {
-	return core.GetCyre().Action(types.IO(config))
+	return cyre.GetCyre().Action(types.IO(config))
 }
 
 // On subscribes to an action by ID (NOT by type - this is critical!)
@@ -94,7 +94,7 @@ func Action(config ActionConfig) error {
 //	    return map[string]interface{}{"success": true}
 //	})
 func On(actionID string, handler HandlerFunc) SubscribeResult {
-	return core.GetCyre().On(actionID, handler)
+	return cyre.GetCyre().On(actionID, handler)
 }
 
 // Call triggers an action by ID with payload
@@ -114,7 +114,7 @@ func On(actionID string, handler HandlerFunc) SubscribeResult {
 //	    fmt.Printf("Success: %v\n", result.Payload)
 //	}
 func Call(actionID string, payload interface{}) <-chan CallResult {
-	return core.GetCyre().Call(actionID, payload)
+	return cyre.GetCyre().Call(actionID, payload)
 }
 
 // Get retrieves current payload for an action
@@ -129,7 +129,7 @@ func Call(actionID string, payload interface{}) <-chan CallResult {
 //	    fmt.Printf("Current payload: %v\n", payload)
 //	}
 func Get(actionID string) (interface{}, bool) {
-	return core.GetCyre().Get(actionID)
+	return cyre.GetCyre().Get(actionID)
 }
 
 // Forget removes an action and all associated state
@@ -144,7 +144,7 @@ func Get(actionID string) (interface{}, bool) {
 //	    fmt.Println("Action removed successfully")
 //	}
 func Forget(actionID string) bool {
-	return core.GetCyre().Forget(actionID)
+	return cyre.GetCyre().Forget(actionID)
 }
 
 // Reset resets system to default state
@@ -154,7 +154,7 @@ func Forget(actionID string) bool {
 //
 //	cyre.Reset() // Reset system state
 func Reset() {
-	core.GetCyre().Reset()
+	cyre.GetCyre().Reset()
 }
 
 // Shutdown performs clean system shutdown
@@ -164,29 +164,5 @@ func Reset() {
 //
 //	cyre.Shutdown() // Clean shutdown
 func Shutdown() {
-	core.GetCyre().Shutdown()
-}
-
-// === VERSION INFO ===
-
-// Version returns the current Cyre Go version
-func Version() string {
-	return "1.0.0"
-}
-
-// Build info
-var (
-	BuildTime   = "unknown"
-	BuildCommit = "unknown"
-	GoVersion   = "unknown"
-)
-
-// BuildInfo returns build information
-func BuildInfo() map[string]string {
-	return map[string]string{
-		"version":   Version(),
-		"buildTime": BuildTime,
-		"commit":    BuildCommit,
-		"goVersion": GoVersion,
-	}
+	cyre.GetCyre().Shutdown()
 }

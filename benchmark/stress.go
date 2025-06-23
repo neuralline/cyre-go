@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/neuralline/cyre-go/core"
+	"github.com/neuralline/cyre-go/cyre"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -22,13 +22,13 @@ func main() {
 	fmt.Printf("🔧 System Info: %d CPU cores, %d goroutines initially\n", runtime.NumCPU(), runtime.NumGoroutine())
 
 	// Initialize Cyre
-	result := core.Initialize()
+	result := cyre.Initialize()
 	if !result.OK {
 		log.Fatal("❌ Failed to initialize Cyre:", result.Error)
 	}
 	fmt.Printf("✅ Cyre initialized: %s\n", result.Message)
 
-	cyre := core.GetCyre()
+	cyre := cyre.GetCyre()
 
 	// Register different types of actions to create varied load
 	actions := []struct {
@@ -182,7 +182,7 @@ func createWorkloadHandler(workType string, delay time.Duration) func(interface{
 }
 
 // runLoadTest executes a load test with specified parameters
-func runLoadTest(cyre *core.Cyre, actions []struct {
+func runLoadTest(cyre *cyre.Cyre, actions []struct {
 	id       string
 	workType string
 	delay    time.Duration
@@ -235,7 +235,7 @@ func runLoadTest(cyre *core.Cyre, actions []struct {
 }
 
 // testEmergencyDuringStress tests critical priority actions during system stress
-func testEmergencyDuringStress(cyre *core.Cyre) {
+func testEmergencyDuringStress(cyre *cyre.Cyre) {
 	fmt.Println("   Testing emergency action during high stress...")
 
 	// Create background stress
@@ -262,7 +262,7 @@ func testEmergencyDuringStress(cyre *core.Cyre) {
 }
 
 // testWorkerIntelligence tests if the system intelligently adjusts workers
-func testWorkerIntelligence(cyre *core.Cyre, actions []struct {
+func testWorkerIntelligence(cyre *cyre.Cyre, actions []struct {
 	id       string
 	workType string
 	delay    time.Duration
@@ -292,7 +292,7 @@ func testWorkerIntelligence(cyre *core.Cyre, actions []struct {
 }
 
 // printSystemMetrics displays comprehensive system metrics
-func printSystemMetrics(cyre *core.Cyre, phase string) {
+func printSystemMetrics(cyre *cyre.Cyre, phase string) {
 	metrics := cyre.GetMetrics()
 
 	fmt.Printf("📊 %s SYSTEM METRICS:\n", phase)
@@ -350,7 +350,7 @@ func printSystemMetrics(cyre *core.Cyre, phase string) {
 }
 
 // analyzeBreathingSystem provides analysis of breathing system effectiveness
-func analyzeBreathingSystem(cyre *core.Cyre) {
+func analyzeBreathingSystem(cyre *cyre.Cyre) {
 	metrics := cyre.GetMetrics()
 
 	stressLevel := getStressLevel(metrics)

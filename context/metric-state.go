@@ -480,27 +480,21 @@ func (ms *MetricState) initializeBreathing() {
 	fmt.Printf("DEBUG: initializeBreathing() called\n")
 
 	go func() {
-		fmt.Printf("DEBUG: Breathing goroutine started\n")
 		time.Sleep(2 * time.Second)
-		fmt.Printf("DEBUG: Delay complete, starting ticker\n")
 
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-
-		fmt.Printf("DEBUG: Ticker created, entering loop\n")
 
 		tickCount := 0
 		for {
 			select {
 			case <-ticker.C:
 				tickCount++
-				fmt.Printf("DEBUG: Breathing tick %d\n", tickCount)
 				ms.updateBreathingFromMetrics()
 			}
 		}
 	}()
 
-	fmt.Printf("DEBUG: Breathing goroutine launched\n")
 }
 
 func (ms *MetricState) initializeBreathingAccurate() {
@@ -509,15 +503,11 @@ func (ms *MetricState) initializeBreathingAccurate() {
 }
 
 func (ms *MetricState) updateBreathingFromMetrics() {
-	fmt.Printf("DEBUG: updateBreathingFromMetrics() called\n")
 
 	cpu := ms.getCPUUsage()
 	memory := ms.getMemoryUsage()
 	goroutines := runtime.NumGoroutine()
 	gcPressure := ms.detectGCPressure()
-
-	fmt.Printf("DEBUG: Health readings - CPU:%.1f%%, Memory:%.1f%%, Goroutines:%d, GC:%v\n",
-		cpu, memory, goroutines, gcPressure)
 
 	ms.UpdateSystemHealth(cpu, memory, goroutines, gcPressure)
 

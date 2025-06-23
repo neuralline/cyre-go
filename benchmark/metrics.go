@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/neuralline/cyre-go/core"
+	"github.com/neuralline/cyre-go/cyre"
 	"github.com/neuralline/cyre-go/types"
 )
 
@@ -19,13 +19,13 @@ func main() {
 	fmt.Println("====================================================")
 
 	// Initialize
-	result := core.Initialize()
+	result := cyre.Initialize()
 	if !result.OK {
 		log.Fatal("Failed to initialize:", result.Error)
 	}
 	fmt.Println("✅ Cyre initialized")
 
-	cyre := core.GetCyre()
+	cyre := cyre.GetCyre()
 
 	// Test 1: Check initial state
 	fmt.Println("\n🧪 Test 1: Initial MetricState Check")
@@ -119,7 +119,7 @@ func main() {
 	cyre.Shutdown()
 }
 
-func checkMetricState(cyre *core.Cyre, phase string) {
+func checkMetricState(cyre *cyre.Cyre, phase string) {
 	fmt.Printf("\n📊 METRICSTATE CHECK: %s\n", phase)
 
 	// Get metrics
@@ -159,7 +159,7 @@ func checkMetricState(cyre *core.Cyre, phase string) {
 		memStats.Alloc/1024, memStats.Sys/1024, memStats.NumGC)
 }
 
-func checkDirectAccess(cyre *core.Cyre) {
+func checkDirectAccess(cyre *cyre.Cyre) {
 	// We can't access MetricState directly from here, but we can test
 	// if the Cyre methods that depend on it work
 

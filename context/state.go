@@ -59,7 +59,7 @@ type StateManager struct {
 }
 
 // Enhanced initialization with MetricState integration
-func Initialize() *StateManager {
+func Init() *StateManager {
 	initOnce.Do(func() {
 		defaultState := config.DefaultSystemState
 		defaultState.Initialized = true // Use Initialized field instead of Init
@@ -86,7 +86,7 @@ func Initialize() *StateManager {
 // GetState returns the global state manager instance
 func GetState() *StateManager {
 	if GlobalState == nil {
-		return Initialize()
+		return Init()
 	}
 	return GlobalState
 }
@@ -159,11 +159,6 @@ func (io *IOStore) Clear() {
 // GetAll action configurations (unchanged)
 func (io *IOStore) GetAll() []*types.IO {
 	return io.sm.ioStore.GetAll()
-}
-
-// GetMetrics retrieves metrics for an action (unchanged)
-func (io *IOStore) GetMetrics(actionID string) (*ActionMetrics, bool) {
-	return io.sm.metrics.Get(actionID)
 }
 
 // === ENHANCED SUBSCRIBERS OPERATIONS ===
@@ -294,7 +289,61 @@ func (tl *TimelineStore) GetActive() []*Timer {
 	return active
 }
 
+/*
+
+most of them follow these apis protocols.
+
+	keep/Set(id, new) add new entry. keep for main functions, set for state and small functions
+	Get(id string) retrieve by id
+	Forget(id string) remove by id
+	Clear() clear all entries
+	GetAll() retrieve all entries
+
+	//function specific not all should have these
+	Status() // provides status information of the function
+	GetMetrics()  //only few should have this, returns metrics data, optional id
+
+	//system and lifecycle
+	init() // initializes functions that needs init
+	Reset() // rest the app to default, clear all entries specific to main App
+	Hibernate() // go to sleep. specific to TimeKeeper
+	ShutDown() // clear everything, initiate system shutdown then exit
+
+	action/on/call cyre main methods also know as a channel. they use channel id to communicate to and from.
+
+	outside of these there needs to be priority critical level big table discussion to add new api
+
+*/
+
 // === ENHANCED BRANCH OPERATIONS ===
+
+// === PROTECTION STATE (Unchanged) ===
+
+func (sm *StateManager) SetThrottleTime(actionID string, execTime time.Time) {
+	sm.throttleMap.Store(actionID, execTime)
+}
+
+func (sm *StateManager) GetThrottleTime(actionID string) (time.Time, bool) {
+	if value, exists := sm.throttleMap.Load(actionID); exists {
+		return value.(time.Time), true
+	}
+	return time.Time{}, false
+}
+
+func (sm *StateManager) SetDebounceTimer(actionID string, timer interface{}) {
+	sm.debounceMap.Store(actionID, timer)
+}
+
+func (sm *StateManager) GetDebounceTimer(actionID string) (interface{}, bool) {
+	if value, exists := sm.debounceMap.Load(actionID); exists {
+		return value, true
+	}
+	return nil, false
+}
+
+func (sm *StateManager) ClearDebounceTimer(actionID string) {
+	sm.debounceMap.Delete(actionID)
+}
 
 type BranchStoreManager struct {
 	sm *StateManager
@@ -544,8 +593,8 @@ func (sm *StateManager) ForgetAction(actionID string) bool {
 	sm.Subscribers().Forget(actionID)
 	sm.ForgetPayload(actionID)
 	sm.metrics.Forget(actionID)
-	sm.ClearDebounceTimer(actionID)
 	sm.throttleMap.Delete(actionID)
+	sm.debounceMap.Delete(actionID)
 
 	// Store counts automatically updated by individual Forget() calls
 	return true
@@ -630,34 +679,6 @@ func (sm *StateManager) ComparePayload(actionID string, newPayload interface{}) 
 	}
 
 	return string(currentJSON) != string(newJSON)
-}
-
-// === PROTECTION STATE (Unchanged) ===
-
-func (sm *StateManager) SetThrottleTime(actionID string, execTime time.Time) {
-	sm.throttleMap.Store(actionID, execTime)
-}
-
-func (sm *StateManager) GetThrottleTime(actionID string) (time.Time, bool) {
-	if value, exists := sm.throttleMap.Load(actionID); exists {
-		return value.(time.Time), true
-	}
-	return time.Time{}, false
-}
-
-func (sm *StateManager) SetDebounceTimer(actionID string, timer interface{}) {
-	sm.debounceMap.Store(actionID, timer)
-}
-
-func (sm *StateManager) GetDebounceTimer(actionID string) (interface{}, bool) {
-	if value, exists := sm.debounceMap.Load(actionID); exists {
-		return value, true
-	}
-	return nil, false
-}
-
-func (sm *StateManager) ClearDebounceTimer(actionID string) {
-	sm.debounceMap.Delete(actionID)
 }
 
 func (sm *StateManager) GetMetrics(actionID string) (*ActionMetrics, bool) {

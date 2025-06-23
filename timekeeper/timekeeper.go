@@ -69,8 +69,8 @@ type TimeKeeper struct {
 var GlobalTimeKeeper *TimeKeeper
 var tkOnce sync.Once
 
-// Initialize creates and starts the global TimeKeeper
-func Initialize() *TimeKeeper {
+// Init creates and starts the global TimeKeeper
+func Init() *TimeKeeper {
 	tkOnce.Do(func() {
 		stateManager := cyrecontext.GetState()
 
@@ -87,7 +87,7 @@ func Initialize() *TimeKeeper {
 // GetTimeKeeper returns the global TimeKeeper instance
 func GetTimeKeeper() *TimeKeeper {
 	if GlobalTimeKeeper == nil {
-		return Initialize()
+		return Init()
 	}
 	return GlobalTimeKeeper
 }

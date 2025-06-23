@@ -2,7 +2,7 @@
 // Core type definitions for Cyre Go
 // Essential types used throughout the core system
 
-package core
+package cyre
 
 import (
 	"fmt"
