@@ -163,13 +163,6 @@ func checkDirectAccess(cyre *cyre.Cyre) {
 
 	fmt.Println("Testing Cyre methods that use MetricState...")
 
-	// Test ActionExists
-	if cyre.ActionExists("test-action-0") {
-		fmt.Println("✅ ActionExists() works")
-	} else {
-		fmt.Println("❌ ActionExists() failed")
-	}
-
 	// Test Get
 	if payload, exists := cyre.Get("test-action-0"); exists {
 		fmt.Printf("✅ Get() works: %v\n", payload)

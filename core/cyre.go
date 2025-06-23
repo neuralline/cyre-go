@@ -1,5 +1,5 @@
-// core/cyre.go - FIXED to use correct state API
-// Updated to use direct state package functions instead of StateManager methods
+// core/cyre.go - FIXED to integrate schema/execute.go pipeline
+// Updated Call method to properly execute operator pipeline before handler
 
 package cyre
 
@@ -117,14 +117,6 @@ func Init(configParams ...map[string]interface{}) InitResult {
 	}
 }
 
-// GetCyre returns the global Cyre instance
-func GetCyre() *Cyre {
-	if GlobalCyre == nil {
-		Init()
-	}
-	return GlobalCyre
-}
-
 // Call method with enhanced worker scaling based on accurate metrics
 func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	resultChan := make(chan CallResult, 1)
@@ -178,13 +170,13 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	// ENHANCED: Try multiple strategies for worker allocation
 	select {
 	case <-c.workerPool:
-		// Got worker from pool - execute
+		// Got worker from pool - execute with pipeline
 		go func() {
 			defer func() {
 				c.workerPool <- struct{}{} // Return worker
 				close(resultChan)
 			}()
-			c.handler(actionID, payload, ioConfig, resultChan)
+			c.handlerWithPipeline(actionID, payload, ioConfig, resultChan)
 		}()
 
 	case <-time.After(5 * time.Millisecond): // Increased timeout from 1ms to 5ms
@@ -193,7 +185,7 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 			// Execute without pool constraint if under intelligent limit
 			go func() {
 				defer close(resultChan)
-				c.handler(actionID, payload, ioConfig, resultChan)
+				c.handlerWithPipeline(actionID, payload, ioConfig, resultChan)
 			}()
 		} else {
 			// At intelligent capacity - reject
@@ -208,10 +200,57 @@ func (c *Cyre) Call(actionID string, payload interface{}) <-chan CallResult {
 	return resultChan
 }
 
-// handler with enhanced performance tracking
-func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
+// GetCyre returns the global Cyre instance
+func GetCyre() *Cyre {
+	if GlobalCyre == nil {
+		Init()
+	}
+	return GlobalCyre
+}
+
+// FIXED: New handler method that integrates pipeline execution
+func (c *Cyre) handlerWithPipeline(actionID string, payload interface{}, ioConfig *types.IO, resultChan chan CallResult) {
 	start := time.Now()
 
+	// Update call metrics first
+	if c.metricState != nil {
+		c.metricState.UpdateCallMetrics()
+	}
+
+	// CRITICAL FIX: Execute pipeline before handler
+	pipelineResult := schema.ExecutePipeline(actionID, payload, ioConfig, c.stateManager)
+
+	// Check if pipeline blocked execution
+	if !pipelineResult.Allow {
+		duration := time.Since(start)
+		if c.metricState != nil {
+			c.metricState.UpdatePerformance(duration, false)
+		}
+
+		resultChan <- CallResult{
+			OK:      false,
+			Message: pipelineResult.Message,
+			Error:   pipelineResult.Error,
+		}
+		return
+	}
+
+	// Check if pipeline detected delay requirement (debounce)
+	if pipelineResult.RequiresDelay && pipelineResult.Delay != nil {
+		// Schedule delayed execution with TimeKeeper
+		c.timeKeeper.Wait(*pipelineResult.Delay, func() {
+			// Execute the actual handler after delay
+			c.executeHandler(actionID, pipelineResult.Payload, ioConfig, resultChan, start)
+		})
+		return
+	}
+
+	// No delay required - execute handler immediately with processed payload
+	c.executeHandler(actionID, pipelineResult.Payload, ioConfig, resultChan, start)
+}
+
+// FIXED: Separated handler execution logic
+func (c *Cyre) executeHandler(actionID string, processedPayload interface{}, ioConfig *types.IO, resultChan chan CallResult, start time.Time) {
 	// FIXED: Use direct state.Subscribers() function instead of c.stateManager.Subscribers()
 	subscriber, exists := state.Subscribers().Get(actionID)
 	if !exists {
@@ -229,7 +268,7 @@ func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO,
 	}
 
 	// FIXED: Use direct state.SetPayload() function instead of c.stateManager.SetPayload()
-	state.SetPayload(actionID, payload)
+	state.SetPayload(actionID, processedPayload)
 
 	// Execute handler with panic recovery
 	var result interface{}
@@ -244,10 +283,15 @@ func (c *Cyre) handler(actionID string, payload interface{}, ioConfig *types.IO,
 			}
 		}()
 
-		result = subscriber.Handler(payload)
+		result = subscriber.Handler(processedPayload)
 	}()
 
 	duration := time.Since(start)
+
+	// Update performance metrics
+	if c.metricState != nil {
+		c.metricState.UpdatePerformance(duration, true)
+	}
 
 	// Handle action chaining (IntraLinks)
 	if chainResult, isChain := c.handleActionChain(result); isChain {
