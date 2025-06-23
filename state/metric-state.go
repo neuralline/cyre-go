@@ -1,5 +1,5 @@
-// state/metric-state.go - FIXED TYPE DEFINITIONS
-// Fix all MetricState definition and import issues
+// state/metric-state.go - CLEANED BREATHING SYSTEM
+// Consolidated breathing system with only essential functions
 
 package state
 
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/neuralline/cyre-go/config"
+	"github.com/neuralline/cyre-go/sensor"
 )
 
 /*
@@ -111,15 +112,21 @@ func InitializeMetricState() *MetricState {
 		// Initialize GC stats
 		runtime.ReadMemStats(&globalMetricState.lastGCStats)
 
-		// Initialize atomic values
+		// Initialize atomic values - START WITH NO SWEET SPOT to allow scaling
 		atomic.StoreInt32(&globalMetricState.workerLimit, int32(runtime.NumCPU()))
 		atomic.StoreInt64(&globalMetricState.currentSecond, time.Now().Unix())
 
-		Critical("Metric State initialized successfully").
+		// Initialize workers WITHOUT sweet spot found - let system discover optimal
+		globalMetricState.state.Workers.Current = runtime.NumCPU()
+		globalMetricState.state.Workers.Optimal = runtime.NumCPU()
+		globalMetricState.state.Workers.SweetSpot = false // IMPORTANT: Let system find sweet spot
+
+		sensor.Critical("Metric State initialized successfully").
 			Location("context/metric-state.go").
 			Metadata(map[string]interface{}{
 				"initialWorkers": runtime.NumCPU(),
 				"windowSize":     10,
+				"sweetSpot":      false,
 			}).
 			Log()
 
@@ -159,7 +166,7 @@ func InitializeMetricStateAccurate() *MetricState {
 		globalMetricState.state.Workers.Current = initialWorkers
 		globalMetricState.state.Workers.Optimal = initialWorkers
 
-		Critical("Accurate Metric State initialized successfully").
+		sensor.Critical("Accurate Metric State initialized successfully").
 			Location("context/metric-state.go").
 			Metadata(map[string]interface{}{
 				"initialWorkers": initialWorkers,
@@ -170,7 +177,7 @@ func InitializeMetricStateAccurate() *MetricState {
 			Log()
 
 		// Start breathing system using accurate measurements
-		globalMetricState.initializeBreathingAccurate()
+		globalMetricState.initializeBreathing()
 	})
 	return globalMetricState
 }
@@ -194,7 +201,7 @@ func (ms *MetricState) Lock() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	Critical("System locked for maintenance").
+	sensor.Critical("System locked for maintenance").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -208,7 +215,7 @@ func (ms *MetricState) Unlock() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	Critical("System unlocked - resuming operations").
+	sensor.Critical("System unlocked - resuming operations").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -220,7 +227,7 @@ func (ms *MetricState) Init() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	Warn("System initialization completed").
+	sensor.Warn("System initialization completed").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -234,7 +241,7 @@ func (ms *MetricState) Shutdown() {
 	ms.state.LastUpdate = time.Now().UnixMilli()
 	ms.mu.Unlock()
 
-	Warn("System shutdown initiated").
+	sensor.Warn("System shutdown initiated").
 		Location("context/metric-state.go").
 		Log()
 }
@@ -249,11 +256,11 @@ func (ms *MetricState) SetHibernating(hibernating bool) {
 	ms.mu.Unlock()
 
 	if hibernating {
-		Critical("System entering hibernation mode").
+		sensor.Critical("System entering hibernation mode").
 			Location("context/metric-state.go").
 			Log()
 	} else {
-		Critical("System exiting hibernation mode").
+		sensor.Critical("System exiting hibernation mode").
 			Location("context/metric-state.go").
 			Log()
 	}
@@ -399,10 +406,7 @@ func (ms *MetricState) UpdateSystemHealth(cpu, memory float64, goroutines int, g
 	ms.state.Health.GoroutineCount = goroutines
 	ms.state.Health.GCPressure = gcPressure
 
-	// Calculate overall stress level
-	ms.calculateStressLevel()
-
-	// Update breathing control flags
+	// Calculate overall stress level and update breathing control in one step
 	ms.updateBreathingControl()
 
 	ms.state.LastUpdate = time.Now().UnixMilli()
@@ -472,11 +476,10 @@ func max(a, b float64) float64 {
 	return b
 }
 
-// === BREATHING SYSTEM PLACEHOLDER METHODS ===
-// These will be implemented in the next artifact
+// === CLEANED BREATHING SYSTEM - ONLY TWO FUNCTIONS ===
 
+// initializeBreathing starts the breathing system background process
 func (ms *MetricState) initializeBreathing() {
-	// Basic breathing system initialization
 	fmt.Printf("DEBUG: initializeBreathing() called\n")
 
 	go func() {
@@ -485,35 +488,113 @@ func (ms *MetricState) initializeBreathing() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		tickCount := 0
 		for {
 			select {
 			case <-ticker.C:
-				tickCount++
-				ms.updateBreathingFromMetrics()
+				ms.UpdateBreathingFromMetrics()
 			}
 		}
 	}()
-
 }
 
-func (ms *MetricState) initializeBreathingAccurate() {
-	// Accurate breathing system initialization
-	ms.initializeBreathing() // Use basic for now, will enhance
-}
-
-func (ms *MetricState) updateBreathingFromMetrics() {
-
+// updateBreathingFromMetrics - CONSOLIDATED breathing function that does everything
+func (ms *MetricState) UpdateBreathingFromMetrics() {
+	// Collect current system metrics
 	cpu := ms.getCPUUsage()
 	memory := ms.getMemoryUsage()
 	goroutines := runtime.NumGoroutine()
 	gcPressure := ms.detectGCPressure()
 
+	// Update system health in state
 	ms.UpdateSystemHealth(cpu, memory, goroutines, gcPressure)
 
+	// Update throughput
 	throughput := ms.measureThroughput()
 	ms.UpdateThroughput(throughput)
 }
+
+// updateBreathingControl - CONSOLIDATED breathing calculation and flag setting
+func (ms *MetricState) updateBreathingControl() {
+	// Calculate stress components with more realistic weighting
+	cpuStress := ms.state.Health.CPUPercent / 100.0
+	memoryStress := ms.state.Health.MemoryPercent / 100.0
+
+	// Throughput stress - higher throughput = higher stress
+	throughputStress := 0.0
+	if ms.state.Performance.ThroughputPerSec > 100 {
+		// Scale throughput stress: 100 ops/sec = 0%, 1000 ops/sec = 100%
+		throughputStress = (ms.state.Performance.ThroughputPerSec - 100) / 900.0
+		if throughputStress > 1.0 {
+			throughputStress = 1.0
+		}
+	}
+
+	// Goroutine pressure - scale based on CPU cores
+	goroutineStress := 0.0
+	optimalGoroutines := float64(runtime.NumCPU() * 10) // 10 goroutines per CPU core is comfortable
+	if float64(ms.state.Health.GoroutineCount) > optimalGoroutines {
+		goroutineStress = (float64(ms.state.Health.GoroutineCount) - optimalGoroutines) / optimalGoroutines
+		if goroutineStress > 1.0 {
+			goroutineStress = 1.0
+		}
+	}
+
+	// Error stress
+	errorStress := ms.state.Performance.ErrorRate * 3.0 // Amplify error impact
+	if errorStress > 1.0 {
+		errorStress = 1.0
+	}
+
+	// Latency stress - more sensitive to latency spikes
+	latencyStress := 0.0
+	if ms.state.Performance.AvgLatencyMs > 10 { // Start stress at 10ms instead of 100ms
+		latencyStress = (ms.state.Performance.AvgLatencyMs - 10) / 100.0 // 10ms = 0%, 110ms = 100%
+		if latencyStress > 1.0 {
+			latencyStress = 1.0
+		}
+	}
+
+	// REALISTIC stress calculation - weight throughput and goroutines more heavily
+	stressLevel := cpuStress*0.25 + memoryStress*0.15 + throughputStress*0.3 + goroutineStress*0.2 + errorStress*0.05 + latencyStress*0.05
+
+	if stressLevel > 1.0 {
+		stressLevel = 1.0
+	}
+
+	// Update stress level in state
+	ms.state.Breathing.StressLevel = stressLevel
+
+	// LOWERED thresholds to be more responsive
+	isRecuperating := stressLevel > 0.6 // Was 0.8 - now triggers at 60% stress
+	blockNormal := stressLevel > 0.4    // Was 0.7 - now triggers at 40% stress
+	blockLow := stressLevel > 0.25      // Was 0.5 - now triggers at 25% stress
+
+	// Update breathing state
+	ms.state.Breathing.IsRecuperating = isRecuperating
+	ms.state.Breathing.BlockNormal = blockNormal
+	ms.state.Breathing.BlockLow = blockLow
+	ms.state.InRecuperation = isRecuperating
+
+	// Update atomic flags for hot path
+	atomic.StoreInt32(&ms.isRecuperating, boolToInt32(isRecuperating))
+	atomic.StoreInt32(&ms.blockNormal, boolToInt32(blockNormal))
+	atomic.StoreInt32(&ms.blockLow, boolToInt32(blockLow))
+
+	// Set breathing phase with more granular detection
+	if isRecuperating {
+		ms.state.Breathing.Phase = "recovery"
+	} else if blockNormal {
+		ms.state.Breathing.Phase = "stressed"
+	} else if blockLow {
+		ms.state.Breathing.Phase = "elevated"
+	} else if !ms.state.Workers.SweetSpot {
+		ms.state.Breathing.Phase = "scaling"
+	} else {
+		ms.state.Breathing.Phase = "normal"
+	}
+}
+
+// === BASIC METRIC COLLECTION (Keep these simple helper functions) ===
 
 func (ms *MetricState) getCPUUsage() float64 {
 	goroutines := float64(runtime.NumGoroutine())
@@ -566,79 +647,51 @@ func (ms *MetricState) measureThroughput() float64 {
 	return float64(atomic.LoadInt64(&ms.callsThisSecond))
 }
 
-func (ms *MetricState) calculateStressLevel() {
-	cpuStress := ms.state.Health.CPUPercent / 100.0
-	memoryStress := ms.state.Health.MemoryPercent / 100.0
-
-	errorStress := ms.state.Performance.ErrorRate * 2.0
-	if errorStress > 1.0 {
-		errorStress = 1.0
-	}
-
-	latencyStress := 0.0
-	if ms.state.Performance.AvgLatencyMs > 100 {
-		latencyStress = (ms.state.Performance.AvgLatencyMs - 100) / 400.0
-		if latencyStress > 1.0 {
-			latencyStress = 1.0
-		}
-	}
-
-	ms.state.Breathing.StressLevel = cpuStress*0.3 + memoryStress*0.2 + errorStress*0.3 + latencyStress*0.2
-
-	if ms.state.Breathing.StressLevel > 1.0 {
-		ms.state.Breathing.StressLevel = 1.0
-	}
-}
-
-func (ms *MetricState) updateBreathingControl() {
-	stress := ms.state.Breathing.StressLevel
-
-	isRecuperating := stress > 0.8
-	blockNormal := stress > 0.7
-	blockLow := stress > 0.5
-
-	ms.state.Breathing.IsRecuperating = isRecuperating
-	ms.state.Breathing.BlockNormal = blockNormal
-	ms.state.Breathing.BlockLow = blockLow
-	ms.state.InRecuperation = isRecuperating
-
-	atomic.StoreInt32(&ms.isRecuperating, boolToInt32(isRecuperating))
-	atomic.StoreInt32(&ms.blockNormal, boolToInt32(blockNormal))
-	atomic.StoreInt32(&ms.blockLow, boolToInt32(blockLow))
-
-	if isRecuperating {
-		ms.state.Breathing.Phase = "recovery"
-	} else if blockNormal {
-		ms.state.Breathing.Phase = "stressed"
-	} else if !ms.state.Workers.SweetSpot {
-		ms.state.Breathing.Phase = "scaling"
-	} else {
-		ms.state.Breathing.Phase = "normal"
-	}
-}
-
 func (ms *MetricState) makeScalingDecision() {
-	// Basic scaling logic placeholder
+	// Get current metrics
 	currentThroughput := ms.state.Performance.ThroughputPerSec
 	currentLatency := ms.state.Performance.AvgLatencyMs
+	currentStress := ms.state.Breathing.StressLevel
 
-	if ms.state.Workers.SweetSpot {
+	// Skip scaling if we already found sweet spot and system is stable
+	if ms.state.Workers.SweetSpot && currentStress < 0.3 {
 		return
 	}
 
-	if time.Now().UnixMilli()-ms.state.Workers.LastScaleUp < 5000 {
+	// Don't scale too frequently - wait at least 2 seconds between scales
+	if time.Now().UnixMilli()-ms.state.Workers.LastScaleUp < 2000 {
 		return
 	}
 
-	if ms.state.Breathing.StressLevel > 0.7 {
+	// Don't scale under extreme stress - let system recover first
+	if currentStress > 0.8 {
 		return
 	}
 
-	shouldScale := ms.shouldScaleUp(currentThroughput, currentLatency)
+	// Determine if we should scale up based on throughput and stress
+	shouldScale := false
+
+	// Case 1: High throughput with manageable stress - scale up
+	if currentThroughput > 200 && currentStress > 0.3 && currentStress < 0.6 {
+		shouldScale = true
+	}
+
+	// Case 2: Performance improvement detected from last scaling attempt
+	if ms.lastThroughput > 0 && ms.scaleAttempts > 0 {
+		throughputImproved := currentThroughput > ms.lastThroughput*1.1 // 10% improvement
+		latencyAcceptable := currentLatency <= ms.lastLatency*1.2       // Max 20% latency increase
+		shouldScale = throughputImproved && latencyAcceptable
+	}
+
+	// Case 3: No attempts yet and system showing load
+	if ms.scaleAttempts == 0 && currentThroughput > 100 {
+		shouldScale = true
+	}
 
 	if shouldScale {
 		ms.scaleUpWorkers()
-	} else if ms.scaleAttempts > 0 {
+	} else if ms.scaleAttempts >= 3 && currentStress < 0.4 {
+		// After 3 attempts with low stress, declare sweet spot found
 		ms.detectSweetSpot()
 	}
 }
@@ -659,24 +712,61 @@ func (ms *MetricState) shouldScaleUp(throughput, latency float64) bool {
 }
 
 func (ms *MetricState) scaleUpWorkers() {
+	// Don't scale beyond reasonable limits
+	maxWorkers := runtime.NumCPU() * 4 // Max 4x CPU cores
+	if ms.state.Workers.Current >= maxWorkers {
+		// Hit max workers - declare sweet spot at current level
+		ms.detectSweetSpot()
+		return
+	}
+
+	// Scale up workers
 	ms.state.Workers.Current++
 	ms.state.Workers.LastScaleUp = time.Now().UnixMilli()
 	ms.scaleAttempts++
 
 	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
 
+	// Record current performance for comparison
 	ms.lastThroughput = ms.state.Performance.ThroughputPerSec
 	ms.lastLatency = ms.state.Performance.AvgLatencyMs
 
 	ms.state.Breathing.Phase = "scaling"
+
+	sensor.Debug(fmt.Sprintf("Scaled up workers to %d (attempt %d)", ms.state.Workers.Current, ms.scaleAttempts)).
+		Location("context/metric-state.go").
+		Metadata(map[string]interface{}{
+			"workers":    ms.state.Workers.Current,
+			"attempt":    ms.scaleAttempts,
+			"throughput": ms.lastThroughput,
+			"stress":     ms.state.Breathing.StressLevel,
+		}).
+		Force().
+		Log()
 }
 
 func (ms *MetricState) detectSweetSpot() {
 	ms.state.Workers.SweetSpot = true
-	ms.state.Workers.Optimal = ms.state.Workers.Current - 1
-	ms.state.Workers.Current = ms.state.Workers.Optimal
 
-	atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
+	// Set optimal to current - 1 if we scaled beyond optimal, otherwise current
+	if ms.scaleAttempts > 1 && ms.state.Performance.ThroughputPerSec < ms.lastThroughput {
+		ms.state.Workers.Optimal = ms.state.Workers.Current - 1
+		ms.state.Workers.Current = ms.state.Workers.Optimal
+		atomic.StoreInt32(&ms.workerLimit, int32(ms.state.Workers.Current))
+	} else {
+		ms.state.Workers.Optimal = ms.state.Workers.Current
+	}
 
 	ms.state.Breathing.Phase = "optimized"
+
+	sensor.Info(fmt.Sprintf("Sweet spot detected at %d workers after %d attempts", ms.state.Workers.Optimal, ms.scaleAttempts)).
+		Location("context/metric-state.go").
+		Metadata(map[string]interface{}{
+			"optimalWorkers": ms.state.Workers.Optimal,
+			"attempts":       ms.scaleAttempts,
+			"throughput":     ms.state.Performance.ThroughputPerSec,
+			"stress":         ms.state.Breathing.StressLevel,
+		}).
+		Force().
+		Log()
 }

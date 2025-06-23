@@ -12,6 +12,7 @@ import (
 
 	"github.com/neuralline/cyre-go/config"
 	"github.com/neuralline/cyre-go/schema"
+	"github.com/neuralline/cyre-go/sensor"
 	"github.com/neuralline/cyre-go/state"
 	"github.com/neuralline/cyre-go/timekeeper"
 	"github.com/neuralline/cyre-go/types"
@@ -99,12 +100,17 @@ func Init(configParams ...map[string]interface{}) InitResult {
 		// Initialize metric state
 		metricState.Init()
 
+		// Initialize breathing system (like TypeScript Cyre.init)
+
+		initializeBreathing()
+
 		if useAccurateMonitoring {
-			state.Success("Cyre initialized with accurate system monitoring").
+			sensor.Success("Cyre initialized with accurate system monitoring").
 				Location("core/cyre.go").
 				Metadata(map[string]interface{}{
 					"workerPoolSize":     workerPoolSize,
 					"accurateMonitoring": true,
+					"breathingEnabled":   true,
 				}).
 				Log()
 		}
@@ -115,6 +121,43 @@ func Init(configParams ...map[string]interface{}) InitResult {
 		Payload: startTime.UnixNano(),
 		Message: config.MSG["WELCOME"],
 	}
+}
+
+// initializeBreathing initializes the breathing system using TimeKeeper.Keep (matching TypeScript Cyre)
+func initializeBreathing() {
+	// Direct port from TypeScript cyre.ts initializeBreathing()
+	err := GlobalCyre.timeKeeper.Keep(
+		500*time.Millisecond, // reputation interval (500ms)
+		func() { // callback on each reputation
+
+			// Call MetricState breathing tick
+			GlobalCyre.metricState.UpdateBreathingFromMetrics()
+		},
+		true,                 // repeat infinity (true = -1)
+		"system-breathing",   // id for tracking progress and cancellation
+		500*time.Millisecond, // start reputation after 2s delay (matching TypeScript)
+	)
+
+	if err != nil {
+		sensor.Error(fmt.Sprintf("Failed to initialize breathing system: %v", err)).
+			Location("core/cyre.go").
+			Log()
+		return
+	}
+
+	// Log success (matching TypeScript sensor.info)
+	sensor.Info("Breathing system initialized with metrics integration").
+		Location("core/cyre.go").
+		EventType("system").
+		Metadata(map[string]interface{}{
+			"interval": "500ms",
+			"delay":    "2000ms",
+			"repeat":   "infinity",
+			"id":       "system-breathing",
+			"timing":   "TimeKeeper.Keep",
+		}).
+		Force().
+		Log()
 }
 
 // Call method with enhanced worker scaling based on accurate metrics
@@ -276,7 +319,7 @@ func (c *Cyre) executeHandler(actionID string, processedPayload interface{}, ioC
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				state.Error(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
+				sensor.Error(fmt.Sprintf("Handler panic for action %s: %v", actionID, r)).
 					Location("core/cyre.go").
 					Id(actionID).
 					Log()
@@ -331,7 +374,7 @@ func (c *Cyre) Action(config types.IO) error {
 	// Check for compilation errors
 	if len(compileResult.Errors) > 0 {
 		for _, err := range compileResult.Errors {
-			state.Error(fmt.Sprintf("Action compilation error for %s: %s", config.ID, err)).
+			sensor.Error(fmt.Sprintf("Action compilation error for %s: %s", config.ID, err)).
 				Location("core/cyre.go").
 				Id(config.ID).
 				Log()
@@ -342,7 +385,7 @@ func (c *Cyre) Action(config types.IO) error {
 	// Log compilation warnings
 	if len(compileResult.Warnings) > 0 {
 		for _, warning := range compileResult.Warnings {
-			state.Warn(fmt.Sprintf("Action compilation warning for %s: %s", config.ID, warning)).
+			sensor.Warn(fmt.Sprintf("Action compilation warning for %s: %s", config.ID, warning)).
 				Location("core/cyre.go").
 				Id(config.ID).
 				Log()

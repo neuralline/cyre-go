@@ -1,8 +1,8 @@
-// state/sensor.go
+// sensor/sensor.go
 // Cyre Go Sensor - TypeScript-style API for terminal logging
 // Matches Cyre TypeScript sensor.error() pattern
 
-package state
+package sensor
 
 import (
 	"fmt"

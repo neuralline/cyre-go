@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/neuralline/cyre-go/sensor"
 	"github.com/neuralline/cyre-go/state"
 	"github.com/neuralline/cyre-go/timekeeper"
 	"github.com/neuralline/cyre-go/types"
@@ -141,17 +142,12 @@ func Log(actionID string, payload interface{}, config *types.IO, sm *state.State
 
 // Scheduler - Direct TimeKeeper.Keep() port from TypeScript example
 func Scheduler(actionID string, payload interface{}, config *types.IO, sm *state.StateManager) OperatorResult {
-	if config.Interval <= 0 && config.Delay <= 0 && config.Repeat == 0 {
-		return NewAllow(payload, "No scheduling configured")
-	}
 
 	timeKeeper := timekeeper.GetTimeKeeper()
 
 	// Convert repeat for TimeKeeper
 	var repeat interface{}
-	if config.Repeat == -1 {
-		repeat = true // Infinite
-	} else if config.Repeat > 0 {
+	if config.Repeat > 0 {
 		repeat = config.Repeat
 	} else {
 		repeat = 1 // Default single execution
@@ -176,16 +172,7 @@ func Scheduler(actionID string, payload interface{}, config *types.IO, sm *state
 	}
 
 	// Direct port: TimeKeeper.keep(interval, callback, repeat, id, delay)
-	var err error
-	if delay > 0 {
-		err = timeKeeper.Keep(interval, callback, repeat, actionID, delay)
-	} else {
-		err = timeKeeper.Keep(interval, callback, repeat, actionID)
-	}
-
-	if err != nil {
-		return NewBlock(fmt.Sprintf("Scheduling failed: %v", err))
-	}
+	timeKeeper.Keep(interval, callback, repeat, actionID, delay)
 
 	// Block immediate execution - TimeKeeper will handle the scheduling
 	return NewBlock("Scheduled with TimeKeeper - immediate execution blocked")
@@ -198,7 +185,7 @@ func Schema(actionID string, payload interface{}, config *types.IO, sm *state.St
 		return NewAllow(payload, "No schema validation")
 	}
 
-	state.Warn(fmt.Sprintf("Schema validation not implemented for action: %s", actionID)).
+	sensor.Warn(fmt.Sprintf("Schema validation not implemented for action: %s", actionID)).
 		Location("schema/channel-operators.go").
 		Id(actionID).
 		Log()
@@ -211,7 +198,7 @@ func Auth(actionID string, payload interface{}, config *types.IO, sm *state.Stat
 		return NewAllow(payload, "No authentication required")
 	}
 
-	state.Warn(fmt.Sprintf("Authentication not implemented for action: %s (mode: %s)", actionID, config.Auth.Mode)).
+	sensor.Warn(fmt.Sprintf("Authentication not implemented for action: %s (mode: %s)", actionID, config.Auth.Mode)).
 		Location("schema/channel-operators.go").
 		Id(actionID).
 		Metadata(map[string]interface{}{
@@ -228,7 +215,7 @@ func Condition(actionID string, payload interface{}, config *types.IO, sm *state
 		return NewAllow(payload, "No condition specified")
 	}
 
-	state.Warn(fmt.Sprintf("Condition evaluation not implemented for action: %s", actionID)).
+	sensor.Warn(fmt.Sprintf("Condition evaluation not implemented for action: %s", actionID)).
 		Location("schema/channel-operators.go").
 		Id(actionID).
 		Log()
@@ -241,7 +228,7 @@ func Transform(actionID string, payload interface{}, config *types.IO, sm *state
 		return NewAllow(payload, "No transformation specified")
 	}
 
-	state.Critical(fmt.Sprintf("Payload transformation not implemented for action: %s", actionID)).
+	sensor.Critical(fmt.Sprintf("Payload transformation not implemented for action: %s", actionID)).
 		Location("schema/channel-operators.go").
 		Id(actionID).
 		Log()
@@ -254,7 +241,7 @@ func Selector(actionID string, payload interface{}, config *types.IO, sm *state.
 		return NewAllow(payload, "No selector specified")
 	}
 
-	state.Critical(fmt.Sprintf("Payload selector not implemented for action: %s", actionID)).
+	sensor.Critical(fmt.Sprintf("Payload selector not implemented for action: %s", actionID)).
 		Location("schema/channel-operators.go").
 		Id(actionID).
 		Log()

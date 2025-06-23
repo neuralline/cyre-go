@@ -5,7 +5,7 @@
 package cyre
 
 import (
-	cyre "github.com/neuralline/cyre-go/core"
+	"github.com/neuralline/cyre-go/core"
 	"github.com/neuralline/cyre-go/types"
 )
 

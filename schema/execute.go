@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/neuralline/cyre-go/sensor"
 	"github.com/neuralline/cyre-go/state"
 	"github.com/neuralline/cyre-go/types"
 )
@@ -86,7 +87,7 @@ func executePipelineSteps(actionID string, payload interface{}, action *types.IO
 		operator, exists := GetOperator(operatorName)
 		if !exists {
 			// Log warning for unknown operator but continue
-			state.Warn(fmt.Sprintf("Unknown operator '%s' in pipeline for action %s", operatorName, actionID)).
+			sensor.Warn(fmt.Sprintf("Unknown operator '%s' in pipeline for action %s", operatorName, actionID)).
 				Location("schema/execute.go").
 				Id(actionID).
 				Metadata(map[string]interface{}{
@@ -132,7 +133,7 @@ func executePipelineSteps(actionID string, payload interface{}, action *types.IO
 			schedulingInfo["delaySource"] = operatorName
 			schedulingInfo["delayDuration"] = result.Delay.Milliseconds()
 
-			state.Info(fmt.Sprintf("Operator '%s' detected %v delay for action %s", operatorName, *result.Delay, actionID)).
+			sensor.Info(fmt.Sprintf("Operator '%s' detected %v delay for action %s", operatorName, *result.Delay, actionID)).
 				Location("schema/execute.go").
 				Id(actionID).
 				Metadata(map[string]interface{}{
